@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  background: #0b0e12;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; }
+body { overflow: hidden; background: #0b0e12; }
+button, input, select, textarea { font: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
+::selection { background: rgba(143, 169, 191, .25); color: white; }
+
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2b3540; border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: #3a4856; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { scrollbar-width: none; }
+
+.blueprint-grid {
+  background-image:
+    linear-gradient(rgba(143, 169, 191, .14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(143, 169, 191, .14) 1px, transparent 1px);
+  background-size: 18px 18px;
+  mask-image: linear-gradient(to bottom, black, transparent);
+}
+
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button { opacity: .35; }
+input[type='color']::-webkit-color-swatch-wrapper { padding: 0; }
+input[type='color']::-webkit-color-swatch { border: 0; border-radius: 4px; }
+
+@media (max-width: 640px) {
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media print {
+  @page { size: A4; margin: 12mm; }
+  html, body, #root { height: auto !important; overflow: visible !important; background: white !important; }
+  body * { visibility: hidden !important; }
+  #print-report, #print-report * { visibility: visible !important; }
+  #print-report {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: white !important;
+    color: #0f172a !important;
+    z-index: 9999 !important;
+  }
+  .no-print { display: none !important; }
+  #print-report section, #print-report table { break-inside: avoid; }
+}

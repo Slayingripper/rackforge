@@ -1,0 +1,36 @@
+{
+  "name": "rackforge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "dev": "npx -y node@22.12.0 node_modules/vite/bin/vite.js --host 0.0.0.0",
+    "build": "npx -y node@22.12.0 node_modules/typescript/bin/tsc -b && npx -y node@22.12.0 node_modules/vite/bin/vite.js build",
+    "preview": "npx -y node@22.12.0 node_modules/vite/bin/vite.js preview --host 0.0.0.0",
+    "typecheck": "npx -y node@22.12.0 node_modules/typescript/bin/tsc -b --pretty false",
+    "test": "npx -y node@22.12.0 node_modules/vitest/vitest.mjs run"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.6",
+    "@react-three/fiber": "^9.3.0",
+    "@react-three/postprocessing": "^3.2.2",
+    "lucide-react": "^0.468.0",
+    "postprocessing": "^6.39.6",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "@types/three": "^0.180.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "typescript": "~5.9.3",
+    "vite": "^7.1.7",
+    "vitest": "^5.1.2"
+  }
+}
