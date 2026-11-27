@@ -169,12 +169,15 @@ export function buildRackModel(
 
   const enclosed = rack.form === 'enclosed';
   const sidePanels = rack.sidePanels !== false;
+  const contained = enclosed || sidePanels;
+  const openingHalf = contained ? W / 2 + cellSpacing * 0.25 : Infinity;
   const boundary: BoundaryConditions = {
     inletSpeedMps,
     inletTempC: ambientC,
     inletFace,
     outletFaces,
-    solidSideWalls: enclosed || sidePanels,
+    opening: contained ? { minX: -openingHalf, maxX: openingHalf } : null,
+    solidSideWalls: contained,
     solidTop: enclosed,
     solidBottom: enclosed,
   };

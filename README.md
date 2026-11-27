@@ -188,7 +188,7 @@ RackForge includes a **real grid-based incompressible fluid solver**, not just h
 
 **Domain & boundary conditions (`src/lib/airflow/rackModel.ts`)**
 - Computational domain = rack + cold-aisle front margin + hot-aisle rear margin + side + floor/ceiling margins.
-- **Cold inlet**: front face (cold aisle) at rack ambient temperature, inflow speed scaled by fan profile; **outlets** at rear hot aisle (+ top / floor return per orientation); zero-gradient temperature outflow; no-slip solids.
+- **Cold inlet**: across the **rack front opening only** for enclosed/panelled racks (contained-aisle / row deployment — no inflow through the side margins around the cabinet, so air cannot unphysically exhaust through solid side panels); full-width room inlet for open 2-post racks. Inflow speed scaled by fan profile; **outlets** at rear hot aisle (+ top / floor return per orientation), likewise restricted to the opening; zero-gradient temperature outflow; no-slip solids.
 - **Facility orientation** (`RackConfig.coolingOrientation`): `front-to-back` (default; cold front → hot rear), `reverse`, `bottom-to-top` (cold supply at floor + hot return at ceiling, in addition to device-level front-to-back), `front-only`. Cold air enters at inlets and hot air exhausts to outlets; buoyancy adds hot-air rise.
 - **Porous-fan device model**: each active device adds **volumetric heat** (`Q̇_heat`, watts) uniformly and injects a **fan velocity** directed intake→exhaust. Volumetric flow `Q̇_air = clamp(Q̇_heat / (ρ·cp·ΔT_device), min, max)`, `ΔT_device≈12 K`. Passive hardware adds heat without fan flow. Real **airflow types** honored: `front-to-back`, `back-to-front`, `side-to-side`, `passive`, including mount side/flip.
 

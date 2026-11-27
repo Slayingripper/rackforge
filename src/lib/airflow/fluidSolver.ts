@@ -19,6 +19,14 @@ export interface BoundaryConditions {
   inletFace: 'front' | 'rear' | 'bottom';
   /** outlet faces */
   outletFaces: Array<'front' | 'rear' | 'top' | 'bottom'>;
+  /**
+   * World-metre x-range of the rack opening. Inlet/outlet flow is only applied
+   * inside this range; outside it the boundary behaves as a solid wall. This
+   * models contained-aisle / row deployment: cold air can only enter through
+   * the rack front opening, never through the side margins around the cabinet.
+   * Null = full-width inlet (open room, e.g. open 2-post racks).
+   */
+  opening: { minX: number; maxX: number } | null;
   /** side walls solid (true) or open (false) */
   solidSideWalls: boolean;
   /** top wall solid */
@@ -350,6 +358,19 @@ export class FluidSolver {
 
   // ---- boundary conditions -----------------------------------------------
 
+  private inOpening(x: number): boolean {
+    const opening = this.bc.opening;
+    if (!opening) return true;
+    return x >= opening.minX && x <= opening.maxX;
+  }
+
+  private wallCell(i: number, j: number, k: number): void {
+    const idx = this.index(i, j, k);
+    if (this.blocked[idx]) return;
+    this.u[idx] = 0; this.v[idx] = 0; this.w[idx] = 0;
+    this.temp[idx] = this.bc.inletTempC;
+  }
+
   private applyBoundaryConditions(): void {
     const { nx, ny, nz } = this;
     const bc = this.bc;
@@ -358,21 +379,25 @@ export class FluidSolver {
     const top = ny - 1;
     const bottom = 0;
     const ambient = bc.inletTempC;
+    const cellX = (i: number): number => this.origin[0] + i * this.spacing;
 
     const setFrontInlet = (i: number, j: number): void => {
       const idx = this.index(i, j, front);
       if (this.blocked[idx]) return;
+      if (!this.inOpening(cellX(i))) { this.wallCell(i, j, front); return; }
       // inflow toward -z
       this.u[idx] = 0; this.v[idx] = 0; this.w[idx] = -bc.inletSpeedMps; this.temp[idx] = ambient;
     };
     const setRearInlet = (i: number, j: number): void => {
       const idx = this.index(i, j, rear);
       if (this.blocked[idx]) return;
+      if (!this.inOpening(cellX(i))) { this.wallCell(i, j, rear); return; }
       this.u[idx] = 0; this.v[idx] = 0; this.w[idx] = bc.inletSpeedMps; this.temp[idx] = ambient;
     };
     const setBottomInlet = (i: number, kk: number): void => {
       const idx = this.index(i, bottom, kk);
       if (this.blocked[idx]) return;
+      if (!this.inOpening(cellX(i))) { this.wallCell(i, bottom, kk); return; }
       this.u[idx] = 0; this.v[idx] = bc.inletSpeedMps * 0.5; this.w[idx] = 0; this.temp[idx] = ambient;
     };
 
@@ -394,6 +419,7 @@ export class FluidSolver {
         for (let j = 1; j < ny - 1; j++) for (let i = 1; i < nx - 1; i++) {
           const idx = this.index(i, j, rear); const inside = this.index(i, j, rear + 1);
           if (this.blocked[idx]) continue;
+          if (!this.inOpening(cellX(i))) { this.wallCell(i, j, rear); continue; }
           // outflow + zero-gradient temperature
           this.w[idx] = -Math.abs(this.w[inside]);
           this.u[idx] = this.u[inside]; this.v[idx] = this.v[inside]; this.temp[idx] = this.temp[inside];
@@ -402,6 +428,7 @@ export class FluidSolver {
         for (let j = 1; j < ny - 1; j++) for (let i = 1; i < nx - 1; i++) {
           const idx = this.index(i, j, front); const inside = this.index(i, j, front - 1);
           if (this.blocked[idx]) continue;
+          if (!this.inOpening(cellX(i))) { this.wallCell(i, j, front); continue; }
           this.w[idx] = Math.abs(this.w[inside]) + bc.inletSpeedMps * 0.25;
           this.u[idx] = this.u[inside]; this.v[idx] = this.v[inside]; this.temp[idx] = this.temp[inside];
         }
@@ -409,6 +436,7 @@ export class FluidSolver {
         for (let kk = 1; kk < nz - 1; kk++) for (let i = 1; i < nx - 1; i++) {
           const idx = this.index(i, top, kk); const inside = this.index(i, top - 1, kk);
           if (this.blocked[idx]) continue;
+          if (!this.inOpening(cellX(i))) { this.wallCell(i, top, kk); continue; }
           this.v[idx] = Math.abs(this.v[inside]) + bc.inletSpeedMps * 0.15;
           this.u[idx] = this.u[inside]; this.w[idx] = this.w[inside]; this.temp[idx] = this.temp[inside];
         }
@@ -416,6 +444,7 @@ export class FluidSolver {
         for (let kk = 1; kk < nz - 1; kk++) for (let i = 1; i < nx - 1; i++) {
           const idx = this.index(i, bottom, kk); const inside = this.index(i, bottom + 1, kk);
           if (this.blocked[idx]) continue;
+          if (!this.inOpening(cellX(i))) { this.wallCell(i, bottom, kk); continue; }
           this.v[idx] = -Math.abs(this.v[inside]) - bc.inletSpeedMps * 0.15;
           this.u[idx] = this.u[inside]; this.w[idx] = this.w[inside]; this.temp[idx] = this.temp[inside];
         }

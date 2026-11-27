@@ -27,7 +27,7 @@ function run(r: RackConfig, devices: PlacedDevice[], steps = 120) {
 
 describe('fluid solver', () => {
   it('advects scalar downstream and projects out divergence', () => {
-    const solver = new FluidSolver({ nx: 8, ny: 8, nz: 8, spacing: 0.1, origin: [0, 0, 0] }, { inletSpeedMps: 0, inletTempC: 22, inletFace: 'front', outletFaces: ['rear'], solidSideWalls: true, solidTop: true, solidBottom: true }, 22);
+    const solver = new FluidSolver({ nx: 8, ny: 8, nz: 8, spacing: 0.1, origin: [0, 0, 0] }, { inletSpeedMps: 0, inletTempC: 22, inletFace: 'front', outletFaces: ['rear'], opening: null, solidSideWalls: true, solidTop: true, solidBottom: true }, 22);
     solver.u.fill(1); // uniform +x flow
     solver.temp[solver.index(3, 3, 3)] = 100;
     solver.step(0.02, 22);
@@ -38,7 +38,7 @@ describe('fluid solver', () => {
   });
 
   it('never produces NaN or Infinity', () => {
-    const solver = new FluidSolver({ nx: 6, ny: 6, nz: 6, spacing: 0.1, origin: [0, 0, 0] }, { inletSpeedMps: 1, inletTempC: 22, inletFace: 'front', outletFaces: ['rear'], solidSideWalls: false, solidTop: false, solidBottom: false }, 22);
+    const solver = new FluidSolver({ nx: 6, ny: 6, nz: 6, spacing: 0.1, origin: [0, 0, 0] }, { inletSpeedMps: 1, inletTempC: 22, inletFace: 'front', outletFaces: ['rear'], opening: null, solidSideWalls: false, solidTop: false, solidBottom: false }, 22);
     for (let s = 0; s < 50; s++) { solver.addHeatW(3, 3, 3, 500); solver.step(0.02, 22); }
     for (let i = 0; i < solver.n; i++) {
       expect(Number.isFinite(solver.u[i])).toBe(true);
@@ -49,14 +49,14 @@ describe('fluid solver', () => {
   });
 
   it('hot air rises (buoyancy)', () => {
-    const solver = new FluidSolver({ nx: 5, ny: 9, nz: 5, spacing: 0.1, origin: [0, 0, 0] }, { inletSpeedMps: 0, inletTempC: 22, inletFace: 'front', outletFaces: ['top'], solidSideWalls: true, solidTop: false, solidBottom: true }, 22);
+    const solver = new FluidSolver({ nx: 5, ny: 9, nz: 5, spacing: 0.1, origin: [0, 0, 0] }, { inletSpeedMps: 0, inletTempC: 22, inletFace: 'front', outletFaces: ['top'], opening: null, solidSideWalls: true, solidTop: false, solidBottom: true }, 22);
     // heat low cells
     for (let s = 0; s < 60; s++) { solver.addHeatW(2, 1, 2, 800); solver.step(0.02, 22); }
     expect(solver.v[solver.index(2, 1, 2)]).toBeGreaterThan(0); // upward velocity at heat source
   });
 
   it('trilinear sampling is finite and in-range', () => {
-    const solver = new FluidSolver({ nx: 4, ny: 4, nz: 4, spacing: 0.1, origin: [0, 0, 0] }, { inletSpeedMps: 0, inletTempC: 22, inletFace: 'front', outletFaces: ['rear'], solidSideWalls: true, solidTop: true, solidBottom: true }, 22);
+    const solver = new FluidSolver({ nx: 4, ny: 4, nz: 4, spacing: 0.1, origin: [0, 0, 0] }, { inletSpeedMps: 0, inletTempC: 22, inletFace: 'front', outletFaces: ['rear'], opening: null, solidSideWalls: true, solidTop: true, solidBottom: true }, 22);
     const s = solver.sample(0.15, 0.15, 0.15);
     expect(Number.isFinite(s.vx)).toBe(true);
     expect(Number.isFinite(s.tempC)).toBe(true);
@@ -148,6 +148,43 @@ describe('simulateAirflow (realistic CFD)', () => {
     const field = simulateAirflow(rack({ coolingOrientation: 'bottom-to-top' }), [device('srv-1u-650', 8, { instanceId: 'd' })], HARDWARE_CATALOG, base, { steps: 120, resolution: 16 });
     expect(Number.isFinite(field.report.averageExhaustC)).toBe(true);
     expect(field.report.maxSpeedMps).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('contained aisle boundaries', () => {
+  it('restricts inlet/outlet to the rack opening for enclosed racks', () => {
+    const r = rack();
+    const devices = [device('srv-1u-650', 10, { instanceId: 's1' })];
+    const base = simulateRack(r, devices, HARDWARE_CATALOG);
+    const field = simulateAirflow(r, devices, HARDWARE_CATALOG, base, { steps: 160, resolution: 16 });
+    const spm = field.scenePerMeter;
+    const minX = field.grid.boundsMin[0] * spm;
+    const maxX = field.grid.boundsMax[0] * spm;
+    const maxZ = field.grid.boundsMax[2] * spm;
+    const rackHalf = (r.widthMm * 0.001 * spm) / 2;
+    // outside the cabinet opening: no inflow through the side margins
+    for (const sx of [minX + 0.05, maxX - 0.05]) {
+      expect(Math.abs(sx)).toBeGreaterThan(rackHalf);
+      const v = field.sampleSceneVelocity(sx, 2.0, maxZ - 0.15);
+      expect(Math.abs(v.vz)).toBeLessThan(0.05);
+    }
+    // inside the opening: real cold-air inflow toward the rack
+    const v = field.sampleSceneVelocity(0, 2.0, maxZ - 0.15);
+    expect(v.vz).toBeLessThan(-0.1);
+  });
+
+  it('keeps full-width inlet for open 2-post racks', () => {
+    const r = rack({ form: 'open-2post', sidePanels: false });
+    const base = simulateRack(r, [], HARDWARE_CATALOG);
+    const field = simulateAirflow(r, [], HARDWARE_CATALOG, base, { steps: 80, resolution: 12 });
+    const spm = field.scenePerMeter;
+    const minX = field.grid.boundsMin[0] * spm;
+    const maxX = field.grid.boundsMax[0] * spm;
+    const maxZ = field.grid.boundsMax[2] * spm;
+    const left = field.sampleSceneVelocity(minX + (maxX - minX) * 0.08, 1.0, maxZ - 0.15);
+    const right = field.sampleSceneVelocity(minX + (maxX - minX) * 0.92, 1.0, maxZ - 0.15);
+    expect(left.vz).toBeLessThan(-0.05);
+    expect(right.vz).toBeLessThan(-0.05);
   });
 });
 
