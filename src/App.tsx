@@ -326,10 +326,10 @@ export default function App() {
       <main className="relative flex min-h-0 flex-1">
         {leftOpen && (
           <>
-            <div className="hidden w-[282px] shrink-0 lg:block"><LibraryPanel catalog={catalog} pendingId={pendingId} onPick={(item) => setPendingId((current) => current === item.id ? null : item.id)} onCustom={() => setModal('custom')} /></div>
+            <div className="hidden w-[282px] shrink-0 lg:block"><LibraryPanel catalog={catalog} pendingId={pendingId} onPick={(item) => setPendingId((current) => current === item.id ? null : item.id)} onDragStart={(id) => setPendingId(id)} onCustom={() => setModal('custom')} /></div>
             <div className="absolute inset-y-0 left-0 z-40 w-[300px] max-w-[88vw] shadow-panel lg:hidden">
               <button className="absolute inset-0 bg-black/60" onClick={() => setLeftOpen(false)} aria-label="Close library drawer" />
-              <div className="relative h-full"><LibraryPanel catalog={catalog} pendingId={pendingId} onPick={(item) => { setPendingId((current) => current === item.id ? null : item.id); if (window.innerWidth < 1024) setLeftOpen(false); }} onCustom={() => { setModal('custom'); setLeftOpen(false); }} onClose={() => setLeftOpen(false)} /></div>
+              <div className="relative h-full"><LibraryPanel catalog={catalog} pendingId={pendingId} onPick={(item) => { setPendingId((current) => current === item.id ? null : item.id); if (window.innerWidth < 1024) setLeftOpen(false); }} onDragStart={(id) => { setPendingId(id); if (window.innerWidth < 1024) setLeftOpen(false); }} onCustom={() => { setModal('custom'); setLeftOpen(false); }} onClose={() => setLeftOpen(false)} /></div>
             </div>
           </>
         )}

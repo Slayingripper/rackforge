@@ -17,11 +17,12 @@ interface LibraryPanelProps {
   catalog: HardwareTemplate[];
   pendingId: string | null;
   onPick: (hardware: HardwareTemplate) => void;
+  onDragStart?: (id: string) => void;
   onCustom: () => void;
   onClose?: () => void;
 }
 
-export function LibraryPanel({ catalog, pendingId, onPick, onCustom, onClose }: LibraryPanelProps) {
+export function LibraryPanel({ catalog, pendingId, onPick, onDragStart, onCustom, onClose }: LibraryPanelProps) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<Category | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -91,6 +92,7 @@ export function LibraryPanel({ catalog, pendingId, onPick, onCustom, onClose }: 
               onDragStart={(event) => {
                 event.dataTransfer.setData('application/rackforge-hardware', item.id);
                 event.dataTransfer.effectAllowed = 'copy';
+                onDragStart?.(item.id);
               }}
               onClick={() => onPick(item)}
               className={`group relative w-full overflow-hidden rounded-xl border p-3 text-left transition-all ${pending ? 'border-accent/50 bg-accent/[0.07] shadow-glow' : 'border-line bg-panel2/60 hover:-translate-y-px hover:border-white/20 hover:bg-panel2'}`}

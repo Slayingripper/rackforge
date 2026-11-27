@@ -119,7 +119,7 @@ function Chassis({
   const innerWidth = Math.max(0.5, rackWidth - 0.16);
   const width = Math.min(hardware.widthMm * MM_SCALE, innerWidth);
   const depth = hardware.depthMm * MM_SCALE;
-  const height = Math.max(0.045, hardware.uHeight * U - 0.012);
+  const height = Math.max(0.045, hardware.uHeight * U - 0.004);
   const y = (device.startU + hardware.uHeight / 2) * U;
   const rackDepth = rack.depthMm * MM_SCALE;
   const z = device.mount === 'rear'
@@ -160,7 +160,7 @@ function Chassis({
           {[-1, 1].map((side) => (
             <group key={side}>
               <mesh position={[side * (width / 2 + 0.025), 0, depth / 2 - 0.035]} castShadow>
-                <boxGeometry args={[0.065, height * 0.88, 0.075]} />
+                <boxGeometry args={[0.05, height * 0.82, 0.05]} />
                 <meshStandardMaterial color="#3c4d61" metalness={0.85} roughness={0.26} />
               </mesh>
               <mesh position={[side * width * 0.415, 0, depth / 2 + 0.035]}>
@@ -329,6 +329,27 @@ function RackFrame({ rack, cutaway, xray, thermal }: { rack: RackConfig; cutaway
   );
 }
 
+function DragGhost({ hardware, rack, startU }: { hardware: HardwareTemplate; rack: RackConfig; startU: number }) {
+  if (hardware.uHeight === 0) return null;
+  const width = Math.min(hardware.widthMm * MM_SCALE, rack.widthMm * MM_SCALE - 0.16);
+  const depth = hardware.depthMm * MM_SCALE;
+  const height = Math.max(0.045, hardware.uHeight * U - 0.004);
+  const rackDepth = rack.depthMm * MM_SCALE;
+  const z = rackDepth / 2 - depth / 2 - 0.12;
+  return (
+    <group position={[0, (startU + hardware.uHeight / 2) * U, z]}>
+      <mesh>
+        <boxGeometry args={[width, height, depth]} />
+        <meshBasicMaterial color="#8fa9bf" transparent opacity={0.24} depthWrite={false} />
+      </mesh>
+      <mesh>
+        <boxGeometry args={[width + 0.02, height + 0.02, depth + 0.02]} />
+        <meshBasicMaterial color="#8fa9bf" wireframe transparent opacity={0.8} depthWrite={false} />
+      </mesh>
+    </group>
+  );
+}
+
 function PlacementSlots({
   rack, pending, hovered, onHover, onPlace,
 }: {
@@ -355,6 +376,7 @@ function PlacementSlots({
           <meshBasicMaterial color={hovered === startU ? '#8fa9bf' : '#8fa9bf'} transparent opacity={hovered === startU ? 0.22 : 0.025} depthWrite={false} />
         </mesh>
       ))}
+      {hovered !== null && pending.uHeight > 0 && <DragGhost hardware={pending} rack={rack} startU={hovered} />}
     </group>
   );
 }
@@ -405,11 +427,7 @@ export function Rack3D(props: Rack3DProps) {
   const telemetryById = useMemo(() => new Map(props.result.telemetry.map((item) => [item.instanceId, item])), [props.result.telemetry]);
   const cameraRef = useRef<Camera | null>(null);
 
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const hardwareId = event.dataTransfer.getData('application/rackforge-hardware');
-    if (!hardwareId) return;
-    const hardware = hardwareById.get(hardwareId);
+  const getDropStartU = (event: DragEvent<HTMLDivElement>, hardware: HardwareTemplate | undefined): number => {
     const canvasRect = event.currentTarget.querySelector('canvas')?.getBoundingClientRect() ?? event.currentTarget.getBoundingClientRect();
     const ndcX = ((event.clientX - canvasRect.left) / canvasRect.width) * 2 - 1;
     const ndcY = -((event.clientY - canvasRect.top) / canvasRect.height) * 2 + 1;
@@ -426,12 +444,28 @@ export function Rack3D(props: Rack3DProps) {
       startU = Math.floor((1 - ratio) * props.rack.heightU);
     }
     const uHeight = hardware?.uHeight ?? 1;
-    startU = Math.max(0, Math.min(Math.max(0, props.rack.heightU - uHeight), startU));
+    return Math.max(0, Math.min(Math.max(0, props.rack.heightU - uHeight), startU));
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    if (!props.pendingHardware) return;
+    setHoveredU(getDropStartU(event, props.pendingHardware));
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const hardwareId = event.dataTransfer.getData('application/rackforge-hardware');
+    if (!hardwareId) return;
+    const hardware = hardwareById.get(hardwareId);
+    const startU = getDropStartU(event, hardware);
+    setHoveredU(null);
     props.onPlace(hardwareId, startU, 'front');
   };
 
   return (
-    <div className="relative h-full" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+    <div className="relative h-full" onDragOver={handleDragOver} onDragLeave={() => setHoveredU(null)} onDrop={handleDrop}>
       <Canvas
         shadows="soft"
         dpr={[1, 1.75]}

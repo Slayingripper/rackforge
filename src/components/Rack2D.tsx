@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { DragEvent } from 'react';
 import type { HardwareTemplate, OverlayMode, PlacedDevice, RackConfig, SimulationResult } from '../types';
 import { CATEGORY_META } from '../data/catalog';
@@ -72,6 +72,8 @@ export function Rack2D({ rack, devices, catalog, selectedId, pendingHardware, vi
   const height = rack.heightU * U_PX + 44;
   const telemetryById = useMemo(() => new Map(result.telemetry.map((item) => [item.instanceId, item])), [result.telemetry]);
   const hardwareById = useMemo(() => new Map(catalog.map((item) => [item.id, item])), [catalog]);
+  const [dragOverU, setDragOverU] = useState<number | null>(null);
+  const [draggingInstanceId, setDraggingInstanceId] = useState<string | null>(null);
   const visible = devices.filter((device) => {
     if (device.mount === 'vertical') return true;
     return device.mount === viewSide;
@@ -81,9 +83,19 @@ export function Rack2D({ rack, devices, catalog, selectedId, pendingHardware, vi
     event.preventDefault();
     const hardwareId = event.dataTransfer.getData('application/rackforge-hardware');
     const instanceId = event.dataTransfer.getData('application/rackforge-device');
+    setDragOverU(null);
+    setDraggingInstanceId(null);
     if (hardwareId) onPlace(hardwareId, startU, viewSide);
     else if (instanceId) onMove(instanceId, startU);
   };
+
+  const handleDragOver = (event: DragEvent<SVGRectElement>, startU: number) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = event.dataTransfer.types.includes('application/rackforge-hardware') ? 'copy' : 'move';
+    setDragOverU(startU);
+  };
+
+  const previewHardware = pendingHardware ?? (draggingInstanceId ? hardwareById.get(devices.find((device) => device.instanceId === draggingInstanceId)?.hardwareId ?? '') ?? null : null);
 
   const handleRowClick = (startU: number) => {
     if (pendingHardware) onPlace(pendingHardware.id, startU, viewSide);
@@ -151,7 +163,8 @@ export function Rack2D({ rack, devices, catalog, selectedId, pendingHardware, vi
                 className={pendingHardware ? 'cursor-crosshair hover:fill-accent/10' : 'cursor-default'}
                 onClick={() => handleRowClick(startU)}
                 onKeyDown={(event) => activateOnKey(event, () => handleRowClick(startU))}
-                onDragOver={(event) => event.preventDefault()}
+                onDragOver={(event) => handleDragOver(event, startU)}
+                onDragLeave={() => setDragOverU(null)}
                 onDrop={(event) => handleDrop(event, startU)}
               >
                 <title>U{startU + 1}{pendingHardware ? ` · place ${pendingHardware.name}` : ''}</title>
@@ -159,6 +172,22 @@ export function Rack2D({ rack, devices, catalog, selectedId, pendingHardware, vi
             </g>
           );
         })}
+
+        {dragOverU !== null && previewHardware && previewHardware.uHeight > 0 && (
+          <g pointerEvents="none">
+            <rect
+              x={FRONT_X + 1}
+              y={34 + (rack.heightU - dragOverU - previewHardware.uHeight) * U_PX + 1}
+              width={DEVICE_WIDTH - 2}
+              height={previewHardware.uHeight * U_PX - 2}
+              rx="3"
+              fill="rgba(143,169,191,.16)"
+              stroke="#8fa9bf"
+              strokeWidth="1.5"
+              strokeDasharray="5 4"
+            />
+          </g>
+        )}
 
         {rack.zones.map((zone) => {
           const y = 34 + (rack.heightU - zone.endU) * U_PX;
@@ -191,7 +220,9 @@ export function Rack2D({ rack, devices, catalog, selectedId, pendingHardware, vi
               onDragStart={(event) => {
                 event.dataTransfer.setData('application/rackforge-device', device.instanceId);
                 event.dataTransfer.effectAllowed = 'move';
+                setDraggingInstanceId(device.instanceId);
               }}
+              onDragEnd={() => { setDraggingInstanceId(null); setDragOverU(null); }}
               onClick={(event) => { event.stopPropagation(); onSelect(device.instanceId); }}
               onKeyDown={(event) => { event.stopPropagation(); activateOnKey(event, () => onSelect(device.instanceId)); }}
               className="cursor-grab active:cursor-grabbing"
