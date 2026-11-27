@@ -76,7 +76,7 @@ export function computeStreamlines(
       x = nx; y = ny; z = nz;
       pts.push(x, y, z);
       temps.push(field.sampleScene(x, y, z).tempC);
-      if (travelled > 13) break;
+      if (travelled > 22) break;
     }
     if (pts.length < 9) continue; // need at least 3 points
     const points = new Float32Array(pts);
@@ -115,24 +115,31 @@ export function streamlinesToSegments(lines: StreamlinePolyline[], ambientC: num
 }
 
 /** build broad inlet + device seeds in scene space */
-export function buildStreamlineSeeds(field: AirflowField, deviceIntakes: Array<[number, number, number]>): Array<[number, number, number]> {
+export function buildStreamlineSeeds(
+  field: AirflowField,
+  deviceIntakes: Array<[number, number, number]>,
+  halfWidthScene?: number,
+): Array<[number, number, number]> {
   const spm = field.scenePerMeter;
   const minX = field.grid.boundsMin[0] * spm; const maxX = field.grid.boundsMax[0] * spm;
   const minY = field.grid.boundsMin[1] * spm; const maxY = field.grid.boundsMax[1] * spm;
   const maxZ = field.grid.boundsMax[2] * spm;
   const seeds: Array<[number, number, number]> = [];
-  // focus seeds on the rack opening + cold aisle, not stagnant side/ceiling margins
+  // seed across the true rack opening (never the stagnant side margins)
   const cx = (minX + maxX) / 2;
-  const halfOpen = (maxX - minX) * 0.30; // central 60% ≈ rack opening
+  const halfOpen = halfWidthScene ?? (maxX - minX) * 0.275;
   const maxDeviceY = deviceIntakes.length ? Math.max(...deviceIntakes.map((p) => p[1])) : maxY;
   const seedTopY = Math.min(maxY - 0.05, maxDeviceY + (maxY - minY) * 0.10);
   const seedBottomY = Math.max(minY + 0.02, minY);
-  const X = 5; const Y = 6;
+  const X = 6; const Y = 6;
   // front cold-aisle inlet plane (rack width, device-height band)
   for (let j = 0; j < Y; j++) for (let i = 0; i < X; i++) {
     seeds.push([cx - halfOpen + (2 * halfOpen) * (i + 0.5) / X, seedBottomY + (seedTopY - seedBottomY) * (j + 0.5) / Y, maxZ - 0.02]);
   }
-  // one seed per device intake so each unit's path is represented
-  for (const p of deviceIntakes) seeds.push([p[0], p[1], p[2]]);
+  // spread device seeds across the rack width so full-width servers show full-width flow
+  const fractions = deviceIntakes.length > 6 ? [-0.55, 0.55] : [-0.6, 0, 0.6];
+  for (const p of deviceIntakes) {
+    for (const f of fractions) seeds.push([cx + halfOpen * 0.92 * f, p[1], p[2]]);
+  }
   return seeds;
 }

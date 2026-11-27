@@ -30,14 +30,14 @@ const clampNum = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? 
  * Cold particles enter at inlets, are heated by devices, rise by buoyancy,
  * exhaust at outlets; recirculation & bypass emerge from the field.
  */
-function Streamlines({ field, speedMultiplier, enabled }: { field: AirflowField; speedMultiplier: number; enabled: boolean }) {
+function Streamlines({ field, halfWidthScene, speedMultiplier, enabled }: { field: AirflowField; halfWidthScene: number; speedMultiplier: number; enabled: boolean }) {
   const lines = useMemo(() => {
     const intakes = field.report.perDevice.map((d) => d.intakeScene);
-    const all = computeStreamlines(field, buildStreamlineSeeds(field, intakes), 520, 0.04);
+    const all = computeStreamlines(field, buildStreamlineSeeds(field, intakes, halfWidthScene), 700, 0.04);
     // Longest paths first: they show the complete cold-aisle → device → hot-aisle journey.
     all.sort((a, b) => b.length - a.length);
     return all.slice(0, 36);
-  }, [field]);
+  }, [field, halfWidthScene]);
   const rendered = useMemo(() => {
     const ambient = field.report.averageIntakeC;
     return lines.map((line) => {
@@ -105,16 +105,17 @@ function Streamlines({ field, speedMultiplier, enabled }: { field: AirflowField;
           key={index}
           points={line.points}
           vertexColors={line.colors}
-          lineWidth={1.3}
+          lineWidth={1.5}
           transparent
-          opacity={0.42}
+          opacity={0.55}
           depthWrite={false}
+          depthTest={false}
           toneMapped={false}
         />
       ))}
       <instancedMesh ref={mesh} args={[undefined, undefined, Math.max(1, count)]} frustumCulled={false}>
         <sphereGeometry args={[0.024, 8, 8]} />
-        <meshBasicMaterial color="#ffffff" transparent opacity={0.9} depthWrite={false} toneMapped={false} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={0.9} depthWrite={false} depthTest={false} toneMapped={false} />
       </instancedMesh>
     </group>
   );
@@ -381,9 +382,26 @@ export function Airflow3DOverlay({
     new Vector3(side * (width / 2 + 0.48), height * 0.3, -depth / 2 - 0.65),
   ])), [depth, height, width]);
 
+  const faceMarkers = useMemo(() => {
+    if (!field) return null;
+    const spm = field.scenePerMeter;
+    const minX = field.grid.boundsMin[0] * spm; const maxX = field.grid.boundsMax[0] * spm;
+    const minY = field.grid.boundsMin[1] * spm; const maxY = field.grid.boundsMax[1] * spm;
+    const minZ = field.grid.boundsMin[2] * spm; const maxZ = field.grid.boundsMax[2] * spm;
+    const inC = field.report.averageIntakeC.toFixed(1);
+    const exC = field.report.averageExhaustC.toFixed(1);
+    return (
+      <group>
+        <LabelSprite text={`COLD IN · ${inC}°C`} position={[(minX + maxX) / 2, minY + 1.6, maxZ - 0.3]} color="#6f9fca" width={1.5} fontSize={26} />
+        <LabelSprite text={`HOT OUT · ${exC}°C`} position={[(minX + maxX) / 2, maxY - 2.6, minZ + 0.3]} color="#d47a4f" width={1.5} fontSize={26} />
+      </group>
+    );
+  }, [field]);
+
   return (
     <group>
-      {field && <Streamlines field={field} speedMultiplier={speedMultiplier} enabled={animationEnabled} />}
+      {field && <Streamlines field={field} halfWidthScene={(rack.widthMm * 0.001 * field.scenePerMeter) / 2} speedMultiplier={speedMultiplier} enabled={animationEnabled} />}
+      {faceMarkers}
       {!field && active.map((device) => {
         const hardware = hardwareById.get(device.hardwareId);
         if (!hardware || hardware.airflow === 'passive') return null;
