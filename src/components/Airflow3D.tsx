@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import {
   AdditiveBlending,
   BufferAttribute,
+  BufferGeometry,
+  Float32BufferAttribute,
   CanvasTexture,
   CatmullRomCurve3,
   Color,
@@ -14,6 +16,7 @@ import {
 import type { HardwareTemplate, PlacedDevice, RackConfig, SimulationResult } from '../types';
 import { LabelSprite } from './SceneLabel';
 import type { AirflowField } from '../lib/airflow';
+import { buildStreamlineSeeds, computeStreamlineSegments } from '../lib/airflow/streamlines';
 
 const MM_SCALE = 1 / 250;
 const U = 44.45 * MM_SCALE;
@@ -32,7 +35,7 @@ function FieldParticles({
   field,
   speedMultiplier,
   enabled,
-  count = 1400,
+  count = 320,
 }: {
   field: AirflowField;
   speedMultiplier: number;
@@ -117,7 +120,7 @@ function FieldParticles({
   return (
     <instancedMesh ref={mesh} args={[undefined, undefined, count]} frustumCulled={false}>
       <sphereGeometry args={[0.02, 6, 6]} />
-      <meshBasicMaterial color="#ffffff" transparent opacity={0.85} depthWrite={false} toneMapped={false} />
+      <meshBasicMaterial color="#ffffff" transparent opacity={0.7} depthWrite={false} toneMapped={false} />
     </instancedMesh>
   );
 }
@@ -125,6 +128,26 @@ function FieldParticles({
 function frac(v: number): number {
   const s = Math.sin(v) * 43758.5453;
   return s - Math.floor(s);
+}
+
+function Streamlines({ field }: { field: AirflowField }) {
+  const seg = useMemo(() => {
+    const intakes = field.report.perDevice.map((d) => d.intakeScene);
+    return computeStreamlineSegments(field, buildStreamlineSeeds(field, intakes), 120, 0.02);
+  }, [field]);
+  const geometry = useMemo(() => {
+    const g = new BufferGeometry();
+    g.setAttribute('position', new Float32BufferAttribute(seg.positions, 3));
+    g.setAttribute('color', new Float32BufferAttribute(seg.colors, 3));
+    return g;
+  }, [seg]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  if (seg.segmentCount === 0) return null;
+  return (
+    <lineSegments geometry={geometry} frustumCulled={false}>
+      <lineBasicMaterial vertexColors transparent opacity={0.75} depthWrite={false} toneMapped={false} />
+    </lineSegments>
+  );
 }
 
 function FlowParticles({
@@ -391,6 +414,7 @@ export function Airflow3DOverlay({
   return (
     <group>
       {field && <FieldParticles field={field} speedMultiplier={speedMultiplier} enabled={animationEnabled} />}
+      {field && <Streamlines field={field} />}
       {!field && active.map((device) => {
         const hardware = hardwareById.get(device.hardwareId);
         if (!hardware || hardware.airflow === 'passive') return null;

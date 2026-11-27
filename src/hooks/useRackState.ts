@@ -280,14 +280,23 @@ export function sanitizeImportedState(value: unknown): AppState {
   };
 }
 
+const OVERLAYS: AppState['overlay'][] = ['normal', 'airflow', 'thermal', 'power', 'weight'];
+
 function loadInitialState(): AppState {
+  let base: AppState;
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return sanitizeImportedState(JSON.parse(saved));
+    base = saved ? sanitizeImportedState(JSON.parse(saved)) : defaultState();
   } catch {
     // A malformed local workspace should never prevent the application from starting.
+    base = defaultState();
   }
-  return defaultState();
+  // convenience deep-link: ?overlay=airflow|thermal|power|weight|normal
+  try {
+    const overlayParam = new URLSearchParams(globalThis.location?.search ?? '').get('overlay');
+    if (overlayParam && (OVERLAYS as string[]).includes(overlayParam)) return { ...base, overlay: overlayParam as AppState['overlay'] };
+  } catch { /* ignore */ }
+  return base;
 }
 
 export function useRackState() {
