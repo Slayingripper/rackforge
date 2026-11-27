@@ -2,7 +2,7 @@ import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Edges, Environment, Grid, Lightformer, OrbitControls, RoundedBox } from '@react-three/drei';
 import { Bloom, EffectComposer, SMAA, Vignette } from '@react-three/postprocessing';
 import { useEffect, useMemo, useRef, useState, Fragment, type ComponentRef, type DragEvent } from 'react';
-import { ACESFilmicToneMapping, CanvasTexture, RepeatWrapping, type Group, type Mesh, type MeshBasicMaterial } from 'three';
+import { ACESFilmicToneMapping, CanvasTexture, Plane, Raycaster, RepeatWrapping, Vector2, Vector3, type Camera, type Group, type Mesh, type MeshBasicMaterial } from 'three';
 import type { HardwareTemplate, OverlayMode, PlacedDevice, RackConfig, SimulationResult } from '../types';
 import { LabelSprite } from './SceneLabel';
 import { Airflow3DOverlay } from './Airflow3D';
@@ -114,7 +114,9 @@ function Chassis({
   animationEnabled: boolean;
   onSelect: (id: string) => void;
 }) {
-  const width = Math.min(hardware.widthMm / 160, (rack.widthMm / 160) * 0.8);
+  const rackWidth = rack.widthMm / 160;
+  const innerWidth = Math.max(0.5, rackWidth - 0.24);
+  const width = Math.min(hardware.widthMm / 160, innerWidth * 0.96);
   const depth = hardware.depthMm / 260;
   const height = Math.max(0.045, hardware.uHeight * U - 0.018);
   const y = (device.startU + hardware.uHeight / 2) * U;
@@ -205,19 +207,38 @@ function Chassis({
 
 function VerticalPdu({ device, hardware, rack, selected, onSelect }: { device: PlacedDevice; hardware: HardwareTemplate; rack: RackConfig; selected: boolean; onSelect: (id: string) => void }) {
   const rackHeight = rack.heightU * U;
-  const x = (device.side === 'left' ? -1 : 1) * (rack.widthMm / 320 + 0.11);
+  const rackWidth = rack.widthMm / 160;
+  const pduHeight = rackHeight * 0.86;
+  const x = (device.side === 'left' ? -1 : 1) * (rackWidth / 2 - 0.075);
   return (
     <group position={[x, rackHeight / 2, 0]} onClick={(event: ThreeEvent<MouseEvent>) => { event.stopPropagation(); onSelect(device.instanceId); }}>
-      <RoundedBox args={[0.14, rackHeight * 0.86, 0.36]} radius={0.025} smoothness={2} castShadow>
+      <RoundedBox args={[0.12, pduHeight, 0.32]} radius={0.025} smoothness={2} castShadow>
         <meshStandardMaterial color={hardware.color} metalness={0.55} roughness={0.38} emissive={selected ? '#ffffff' : '#000000'} emissiveIntensity={selected ? 0.15 : 0} />
         {selected && <Edges color="#fff" />}
       </RoundedBox>
-      {Array.from({ length: Math.floor(rackHeight * 5) }, (_, index) => (
-        <mesh key={index} position={[device.side === 'left' ? -0.076 : 0.076, -rackHeight * 0.38 + index * 0.15, 0]}>
-          <boxGeometry args={[0.012, 0.055, 0.16]} />
+      {Array.from({ length: Math.max(1, Math.floor((pduHeight - 0.2) / 0.15)) }, (_, index) => (
+        <mesh key={index} position={[device.side === 'left' ? -0.066 : 0.066, -pduHeight / 2 + 0.1 + index * 0.15, 0]}>
+          <boxGeometry args={[0.01, 0.055, 0.14]} />
           <meshStandardMaterial color="#05080d" roughness={0.6} />
         </mesh>
       ))}
+    </group>
+  );
+}
+
+function RackUnitGrid({ rack, width, depth }: { rack: RackConfig; width: number; depth: number }) {
+  const innerWidth = Math.max(0.5, width - 0.24);
+  return (
+    <group>
+      {Array.from({ length: Math.max(0, rack.heightU - 1) }, (_, index) => {
+        const y = (index + 1) * U;
+        return (
+          <group key={index}>
+            <mesh position={[0, y, depth / 2 - 0.008]}><boxGeometry args={[innerWidth, 0.004, 0.006]} /><meshBasicMaterial color="#3a4856" transparent opacity={0.65} /></mesh>
+            <mesh position={[0, y, -depth / 2 + 0.008]}><boxGeometry args={[innerWidth, 0.004, 0.006]} /><meshBasicMaterial color="#3a4856" transparent opacity={0.65} /></mesh>
+          </group>
+        );
+      })}
     </group>
   );
 }
@@ -235,6 +256,7 @@ function RackFrame({ rack, cutaway, xray, thermal }: { rack: RackConfig; cutaway
 
   return (
     <group>
+      <RackUnitGrid rack={rack} width={width} depth={depth} />
       <RoundedBox args={[width + 0.85, 0.1, depth + 0.85]} radius={0.06} smoothness={3} position={[0, -0.2, 0]} receiveShadow>
         <meshStandardMaterial color="#0d1723" metalness={0.55} roughness={0.4} />
         <Edges color="#31465c" />
@@ -256,10 +278,10 @@ function RackFrame({ rack, cutaway, xray, thermal }: { rack: RackConfig; cutaway
           <meshStandardMaterial color="#52667d" metalness={0.85} roughness={0.28} />
         </mesh>
       ))}
-      {[-1, 1].map((side) => (
-        <group key={`beam-${side}`}>
-          <mesh position={[0, side < 0 ? 0 : height, depth / 2 + 0.08]} castShadow><boxGeometry args={[width + 0.28, 0.12, 0.12]} /><meshStandardMaterial color="#52667d" metalness={0.85} roughness={0.28} /></mesh>
-          {rearPosts && <mesh position={[0, side < 0 ? 0 : height, -depth / 2 - 0.08]} castShadow><boxGeometry args={[width + 0.28, 0.12, 0.12]} /><meshStandardMaterial color="#52667d" metalness={0.85} roughness={0.28} /></mesh>}
+      {[{ key: 'bottom', y: 0 }, { key: 'top', y: height }].map((beam) => (
+        <group key={beam.key}>
+          <mesh position={[0, beam.y, depth / 2 + 0.08]} castShadow><boxGeometry args={[width + 0.28, 0.12, 0.12]} /><meshStandardMaterial color="#52667d" metalness={0.85} roughness={0.28} /></mesh>
+          {rearPosts && <mesh position={[0, beam.y, -depth / 2 - 0.08]} castShadow><boxGeometry args={[width + 0.28, 0.12, 0.12]} /><meshStandardMaterial color="#52667d" metalness={0.85} roughness={0.28} /></mesh>}
         </group>
       ))}
       {enclosed && (
@@ -313,7 +335,8 @@ function PlacementSlots({
   onPlace: (u: number) => void;
 }) {
   if (!pending) return null;
-  const width = rack.widthMm / 160 * 0.8;
+  const width = Math.max(0.5, (rack.widthMm / 160 - 0.24) * 0.96);
+  const depth = Math.max(0.5, (rack.depthMm / 260 - 0.4) * 0.82);
   return (
     <group>
       {Array.from({ length: rack.heightU }, (_, startU) => (
@@ -324,12 +347,18 @@ function PlacementSlots({
           onPointerOver={(event) => { event.stopPropagation(); onHover(startU); document.body.style.cursor = 'crosshair'; }}
           onPointerOut={() => { onHover(null); document.body.style.cursor = 'default'; }}
         >
-          <boxGeometry args={[width, U * 0.92, rack.depthMm / 260 * 0.82]} />
+          <boxGeometry args={[width, U * 0.92, depth]} />
           <meshBasicMaterial color={hovered === startU ? '#8fa9bf' : '#8fa9bf'} transparent opacity={hovered === startU ? 0.22 : 0.025} depthWrite={false} />
         </mesh>
       ))}
     </group>
   );
+}
+
+function CameraRegistration({ cameraRef }: { cameraRef: { current: Camera | null } }) {
+  const { camera } = useThree();
+  useEffect(() => { cameraRef.current = camera; }, [camera, cameraRef]);
+  return null;
 }
 
 function CameraRig({ resetKey, rackHeight }: { resetKey: number; rackHeight: number }) {
@@ -370,14 +399,30 @@ export function Rack3D(props: Rack3DProps) {
   useEffect(() => () => { document.body.style.cursor = 'default'; }, []);
   const hardwareById = useMemo(() => new Map(props.catalog.map((item) => [item.id, item])), [props.catalog]);
   const telemetryById = useMemo(() => new Map(props.result.telemetry.map((item) => [item.instanceId, item])), [props.result.telemetry]);
+  const cameraRef = useRef<Camera | null>(null);
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     const hardwareId = event.dataTransfer.getData('application/rackforge-hardware');
     if (!hardwareId) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(0.999, (event.clientY - rect.top) / rect.height));
-    const startU = Math.floor((1 - ratio) * props.rack.heightU);
+    const hardware = hardwareById.get(hardwareId);
+    const canvasRect = event.currentTarget.querySelector('canvas')?.getBoundingClientRect() ?? event.currentTarget.getBoundingClientRect();
+    const ndcX = ((event.clientX - canvasRect.left) / canvasRect.width) * 2 - 1;
+    const ndcY = -((event.clientY - canvasRect.top) / canvasRect.height) * 2 + 1;
+    let startU = 0;
+    if (cameraRef.current) {
+      const raycaster = new Raycaster();
+      raycaster.setFromCamera(new Vector2(ndcX, ndcY), cameraRef.current);
+      const rackDepth = props.rack.depthMm / 260;
+      const frontZ = rackDepth / 2 - 0.12;
+      const hit = raycaster.ray.intersectPlane(new Plane(new Vector3(0, 0, 1), -frontZ), new Vector3());
+      if (hit) startU = Math.floor(hit.y / U);
+    } else {
+      const ratio = Math.max(0, Math.min(0.999, (event.clientY - canvasRect.top) / canvasRect.height));
+      startU = Math.floor((1 - ratio) * props.rack.heightU);
+    }
+    const uHeight = hardware?.uHeight ?? 1;
+    startU = Math.max(0, Math.min(Math.max(0, props.rack.heightU - uHeight), startU));
     props.onPlace(hardwareId, startU, 'front');
   };
 
@@ -441,6 +486,7 @@ export function Rack3D(props: Rack3DProps) {
           <Vignette eskil={false} offset={0.2} darkness={0.45} />
           <SMAA />
         </EffectComposer>
+        <CameraRegistration cameraRef={cameraRef} />
         <CameraRig resetKey={props.resetKey} rackHeight={props.rack.heightU * U} />
       </Canvas>
       <div className="pointer-events-none absolute bottom-4 left-4 rounded-lg border border-line/80 bg-ink/75 px-3 py-2 font-mono text-[9px] text-muted backdrop-blur-md">
