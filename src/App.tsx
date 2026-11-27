@@ -78,14 +78,28 @@ export default function App() {
 
   const catalog = useMemo(() => [...HARDWARE_CATALOG, ...state.customHardware], [state.customHardware]);
   const baseResult = useMemo(() => simulateRack(state.rack, state.devices, catalog), [state.rack, state.devices, catalog]);
-  // Realistic grid-based CFD airflow layer; fall back to heuristic result on any solver error.
-  const airflowField = useMemo<AirflowField | null>(() => {
-    try {
-      return simulateAirflow(state.rack, state.devices, catalog, baseResult);
-    } catch {
-      return null;
+  // Realistic grid-based CFD airflow layer, computed AFTER paint so drag/drop
+  // and placement stay at 60fps; the previous field is reused until the new
+  // solve lands. Only solved for airflow/thermal overlays; other overlays use
+  // the fast heuristic result. Falls back to heuristics on any solver error.
+  const showFlowField = state.overlay === 'airflow' || state.overlay === 'thermal';
+  const [airflowField, setAirflowField] = useState<AirflowField | null>(null);
+  useEffect(() => {
+    if (!showFlowField) {
+      setAirflowField(null);
+      return;
     }
-  }, [state.rack, state.devices, catalog, baseResult]);
+    const rack = state.rack;
+    const devices = state.devices;
+    const timer = window.setTimeout(() => {
+      try {
+        setAirflowField(simulateAirflow(rack, devices, catalog, baseResult));
+      } catch {
+        setAirflowField(null);
+      }
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [state.rack, state.devices, catalog, baseResult, showFlowField]);
   const result = useMemo(() => applyAirflowField(baseResult, airflowField), [baseResult, airflowField]);
   const selectedDevice = state.devices.find((device) => device.instanceId === state.selectedId) ?? null;
   const selectedHardware = selectedDevice ? catalog.find((item) => item.id === selectedDevice.hardwareId) ?? null : null;

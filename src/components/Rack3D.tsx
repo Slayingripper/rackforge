@@ -428,10 +428,12 @@ export function Rack3D(props: Rack3DProps) {
   const telemetryById = useMemo(() => new Map(props.result.telemetry.map((item) => [item.instanceId, item])), [props.result.telemetry]);
   const cameraRef = useRef<Camera | null>(null);
 
-  const getDropStartU = (event: DragEvent<HTMLDivElement>, hardware: HardwareTemplate | undefined): number => {
-    const canvasRect = event.currentTarget.querySelector('canvas')?.getBoundingClientRect() ?? event.currentTarget.getBoundingClientRect();
-    const ndcX = ((event.clientX - canvasRect.left) / canvasRect.width) * 2 - 1;
-    const ndcY = -((event.clientY - canvasRect.top) / canvasRect.height) * 2 + 1;
+  const hoverRaf = useRef(0);
+  useEffect(() => () => { if (hoverRaf.current) cancelAnimationFrame(hoverRaf.current); }, []);
+
+  const getDropStartU = (clientX: number, clientY: number, rect: DOMRect, hardware: HardwareTemplate | undefined): number => {
+    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
     let startU = 0;
     if (cameraRef.current) {
       const raycaster = new Raycaster();
@@ -441,7 +443,7 @@ export function Rack3D(props: Rack3DProps) {
       const hit = raycaster.ray.intersectPlane(new Plane(new Vector3(0, 0, 1), -frontZ), new Vector3());
       if (hit) startU = Math.floor(hit.y / U);
     } else {
-      const ratio = Math.max(0, Math.min(0.999, (event.clientY - canvasRect.top) / canvasRect.height));
+      const ratio = Math.max(0, Math.min(0.999, (clientY - rect.top) / rect.height));
       startU = Math.floor((1 - ratio) * props.rack.heightU);
     }
     const uHeight = hardware?.uHeight ?? 1;
@@ -452,15 +454,30 @@ export function Rack3D(props: Rack3DProps) {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
     if (!props.pendingHardware) return;
-    setHoveredU(getDropStartU(event, props.pendingHardware));
+    // Coalesce the drag-over event storm to one hover update per frame;
+    // skip re-render entirely when the hovered U hasn't changed.
+    if (hoverRaf.current) return;
+    const clientX = event.clientX;
+    const clientY = event.clientY;
+    const rect = event.currentTarget.querySelector('canvas')?.getBoundingClientRect() ?? event.currentTarget.getBoundingClientRect();
+    const hardware = props.pendingHardware;
+    hoverRaf.current = requestAnimationFrame(() => {
+      hoverRaf.current = 0;
+      setHoveredU((prev) => {
+        const next = getDropStartU(clientX, clientY, rect, hardware);
+        return prev === next ? prev : next;
+      });
+    });
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
+    if (hoverRaf.current) { cancelAnimationFrame(hoverRaf.current); hoverRaf.current = 0; }
     const hardwareId = event.dataTransfer.getData('application/rackforge-hardware');
     if (!hardwareId) return;
     const hardware = hardwareById.get(hardwareId);
-    const startU = getDropStartU(event, hardware);
+    const canvasRect = event.currentTarget.querySelector('canvas')?.getBoundingClientRect() ?? event.currentTarget.getBoundingClientRect();
+    const startU = getDropStartU(event.clientX, event.clientY, canvasRect, hardware);
     setHoveredU(null);
     props.onPlace(hardwareId, startU, 'front');
   };

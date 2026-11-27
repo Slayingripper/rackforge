@@ -92,7 +92,9 @@ export function Rack2D({ rack, devices, catalog, selectedId, pendingHardware, vi
   const handleDragOver = (event: DragEvent<SVGRectElement>, startU: number) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = event.dataTransfer.types.includes('application/rackforge-hardware') ? 'copy' : 'move';
-    setDragOverU(startU);
+    // Bail out when hovering the same row: dragover fires continuously and a
+    // no-op state update would still re-render the whole elevation each time.
+    setDragOverU((prev) => (prev === startU ? prev : startU));
   };
 
   const previewHardware = pendingHardware ?? (draggingInstanceId ? hardwareById.get(devices.find((device) => device.instanceId === draggingInstanceId)?.hardwareId ?? '') ?? null : null);
