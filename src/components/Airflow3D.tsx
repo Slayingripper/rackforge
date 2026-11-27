@@ -16,7 +16,7 @@ import {
 import type { HardwareTemplate, PlacedDevice, RackConfig, SimulationResult } from '../types';
 import { LabelSprite } from './SceneLabel';
 import type { AirflowField } from '../lib/airflow';
-import { buildStreamlineSeeds, computeStreamlineSegments } from '../lib/airflow/streamlines';
+import { buildStreamlineSeeds, computeStreamlines, streamlinesToSegments } from '../lib/airflow/streamlines';
 
 const MM_SCALE = 1 / 250;
 const U = 44.45 * MM_SCALE;
@@ -31,122 +31,74 @@ const clampNum = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? 
  * Cold particles enter at inlets, are heated by devices, rise by buoyancy,
  * exhaust at outlets; recirculation & bypass emerge from the field.
  */
-function FieldParticles({
-  field,
-  speedMultiplier,
-  enabled,
-  count = 320,
-}: {
-  field: AirflowField;
-  speedMultiplier: number;
-  enabled: boolean;
-  count?: number;
-}) {
-  const mesh = useRef<InstancedMesh>(null);
-  const dummy = useMemo(() => new Object3D(), []);
-  const mixedColor = useMemo(() => new Color(), []);
-  const positions = useMemo(() => new Float32Array(count * 3), [count]);
-  const ages = useMemo(() => new Float32Array(count), [count]);
-
-  const spm = field.scenePerMeter;
-  const min = useMemo<[number, number, number]>(() => [field.grid.boundsMin[0] * spm, field.grid.boundsMin[1] * spm, field.grid.boundsMin[2] * spm], [field, spm]);
-  const max = useMemo<[number, number, number]>(() => [field.grid.boundsMax[0] * spm, field.grid.boundsMax[1] * spm, field.grid.boundsMax[2] * spm], [field, spm]);
-  const ambientC = field.report.averageIntakeC;
-
-  const respawn = (i: number, seed: number) => {
-    const r1 = frac(seed * 12.9898 + i * 0.137);
-    const r2 = frac(seed * 78.233 + i * 0.233);
-    const r3 = frac(seed * 39.425 + i * 0.419);
-    const idx = i * 3;
-    if (r3 > 0.5) {
-      positions[idx] = min[0] + r1 * (max[0] - min[0]);
-      positions[idx + 1] = min[1] + r2 * (max[1] - min[1]);
-      positions[idx + 2] = max[2] - 0.02;
-    } else {
-      positions[idx] = min[0] + r1 * (max[0] - min[0]);
-      positions[idx + 1] = min[1] + 0.02;
-      positions[idx + 2] = min[2] + r2 * (max[2] - min[2]);
-    }
-    ages[i] = r1 * 1.5;
-  };
-
-  useEffect(() => {
-    mesh.current?.instanceMatrix.setUsage(DynamicDrawUsage);
-    for (let i = 0; i < count; i++) respawn(i, 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [count, field]);
-
-  useFrame((_, delta) => {
-    if (!mesh.current) return;
-    const dt = enabled ? clampNum(delta, 0, 0.05) * speedMultiplier : 0;
-    for (let i = 0; i < count; i++) {
-      const idx = i * 3;
-      let x = positions[idx];
-      let y = positions[idx + 1];
-      let z = positions[idx + 2];
-      ages[i] += dt;
-      if (dt > 0) {
-        const s = field.sampleSceneVelocity(x, y, z);
-        x += s.vx * dt;
-        y += s.vy * dt;
-        z += s.vz * dt;
-      }
-      const out = x < min[0] || x > max[0] || y < min[1] || y > max[1] || z < min[2] || z > max[2];
-      if (out || ages[i] > 9) {
-        respawn(i, ages[i] + i + 0.31);
-        x = positions[idx];
-        y = positions[idx + 1];
-        z = positions[idx + 2];
-      }
-      x = clampNum(x, min[0], max[0]);
-      y = clampNum(y, min[1], max[1]);
-      z = clampNum(z, min[2], max[2]);
-      positions[idx] = x;
-      positions[idx + 1] = y;
-      positions[idx + 2] = z;
-      const sample = field.sampleScene(x, y, z);
-      const tNorm = clampNum((sample.tempC - ambientC + 1) / 14, 0, 1);
-      mixedColor.lerpColors(COLD, HOT, tNorm);
-      dummy.position.set(x, y, z);
-      dummy.scale.setScalar(0.5 + clampNum(sample.speed * spm, 0, 4) * 0.18);
-      dummy.updateMatrix();
-      mesh.current.setMatrixAt(i, dummy.matrix);
-      mesh.current.setColorAt(i, mixedColor);
-    }
-    mesh.current.instanceMatrix.needsUpdate = true;
-    if (mesh.current.instanceColor) mesh.current.instanceColor.needsUpdate = true;
-  });
-
-  return (
-    <instancedMesh ref={mesh} args={[undefined, undefined, count]} frustumCulled={false}>
-      <sphereGeometry args={[0.02, 6, 6]} />
-      <meshBasicMaterial color="#ffffff" transparent opacity={0.7} depthWrite={false} toneMapped={false} />
-    </instancedMesh>
-  );
-}
-
-function frac(v: number): number {
-  const s = Math.sin(v) * 43758.5453;
-  return s - Math.floor(s);
-}
-
-function Streamlines({ field }: { field: AirflowField }) {
-  const seg = useMemo(() => {
+function Streamlines({ field, speedMultiplier, enabled }: { field: AirflowField; speedMultiplier: number; enabled: boolean }) {
+  const lines = useMemo(() => {
     const intakes = field.report.perDevice.map((d) => d.intakeScene);
-    return computeStreamlineSegments(field, buildStreamlineSeeds(field, intakes), 120, 0.02);
+    return computeStreamlines(field, buildStreamlineSeeds(field, intakes), 240, 0.02);
   }, [field]);
+  const seg = useMemo(() => streamlinesToSegments(lines, field.report.averageIntakeC), [lines, field]);
   const geometry = useMemo(() => {
     const g = new BufferGeometry();
     g.setAttribute('position', new Float32BufferAttribute(seg.positions, 3));
     g.setAttribute('color', new Float32BufferAttribute(seg.colors, 3));
     return g;
   }, [seg]);
+  const mesh = useRef<InstancedMesh>(null);
+  const dummy = useMemo(() => new Object3D(), []);
+  const mixedColor = useMemo(() => new Color(), []);
+  const particlesPerLine = 4;
+  const count = lines.length * particlesPerLine;
+  const ambientC = field.report.averageIntakeC;
+
   useEffect(() => () => geometry.dispose(), [geometry]);
+  useEffect(() => { mesh.current?.instanceMatrix.setUsage(DynamicDrawUsage); }, [count]);
+
+  useFrame(({ clock }) => {
+    if (!mesh.current || count === 0) return;
+    const time = enabled ? clock.elapsedTime * speedMultiplier : 0;
+    let index = 0;
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li];
+      const n = line.cumulative.length;
+      for (let p = 0; p < particlesPerLine; p++) {
+        const phase = (((time * 0.11 + p / particlesPerLine + li * 0.017) % 1) + 1) % 1;
+        const dist = phase * line.length;
+        let i = 1;
+        while (i < n - 1 && line.cumulative[i] < dist) i++;
+        const prev = line.cumulative[i - 1];
+        const span = Math.max(1e-6, line.cumulative[i] - prev);
+        const f = clampNum((dist - prev) / span, 0, 1);
+        const a = (i - 1) * 3;
+        const b = i * 3;
+        const x = line.points[a] + (line.points[b] - line.points[a]) * f;
+        const y = line.points[a + 1] + (line.points[b + 1] - line.points[a + 1]) * f;
+        const z = line.points[a + 2] + (line.points[b + 2] - line.points[a + 2]) * f;
+        const temp = line.temps[i - 1] + (line.temps[i] - line.temps[i - 1]) * f;
+        dummy.position.set(x, y, z);
+        dummy.scale.setScalar(1.15 + Math.sin(phase * Math.PI) * 0.5);
+        dummy.updateMatrix();
+        mesh.current.setMatrixAt(index, dummy.matrix);
+        const tNorm = clampNum((temp - ambientC + 1) / 14, 0, 1);
+        mixedColor.lerpColors(COLD, HOT, tNorm);
+        mesh.current.setColorAt(index, mixedColor);
+        index++;
+      }
+    }
+    mesh.current.instanceMatrix.needsUpdate = true;
+    if (mesh.current.instanceColor) mesh.current.instanceColor.needsUpdate = true;
+  });
+
   if (seg.segmentCount === 0) return null;
   return (
-    <lineSegments geometry={geometry} frustumCulled={false}>
-      <lineBasicMaterial vertexColors transparent opacity={0.75} depthWrite={false} toneMapped={false} />
-    </lineSegments>
+    <group>
+      <lineSegments geometry={geometry} frustumCulled={false}>
+        <lineBasicMaterial vertexColors transparent opacity={0.5} depthWrite={false} toneMapped={false} />
+      </lineSegments>
+      <instancedMesh ref={mesh} args={[undefined, undefined, Math.max(1, count)]} frustumCulled={false}>
+        <sphereGeometry args={[0.028, 7, 7]} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={0.95} depthWrite={false} toneMapped={false} />
+      </instancedMesh>
+    </group>
   );
 }
 
@@ -413,8 +365,7 @@ export function Airflow3DOverlay({
 
   return (
     <group>
-      {field && <FieldParticles field={field} speedMultiplier={speedMultiplier} enabled={animationEnabled} />}
-      {field && <Streamlines field={field} />}
+      {field && <Streamlines field={field} speedMultiplier={speedMultiplier} enabled={animationEnabled} />}
       {!field && active.map((device) => {
         const hardware = hardwareById.get(device.hardwareId);
         if (!hardware || hardware.airflow === 'passive') return null;

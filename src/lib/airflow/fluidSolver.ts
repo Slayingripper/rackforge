@@ -291,7 +291,7 @@ export class FluidSolver {
     this.setBnd(b, d);
   }
 
-  private project(u: Float32Array, v: Float32Array, w: Float32Array, p: Float32Array, div: Float32Array, iterations = 20): void {
+  private project(u: Float32Array, v: Float32Array, w: Float32Array, p: Float32Array, div: Float32Array, iterations = 40): void {
     const { nx, ny, nz, spacing } = this;
     const h = spacing;
     for (let k = 1; k < nz - 1; k++) {

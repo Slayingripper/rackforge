@@ -53,6 +53,11 @@ export function RackStage(props: RackStageProps) {
   const selectedHardware = selectedDevice ? props.catalog.find((item) => item.id === selectedDevice.hardwareId) ?? null : null;
   const selectedTelemetry = selectedDevice ? props.result.telemetry.find((item) => item.instanceId === selectedDevice.instanceId) ?? null : null;
   const showFlow = props.overlay === 'airflow' || props.overlay === 'thermal';
+  const airs = {
+    avgIntake: props.result.airflowReport?.averageIntakeC ?? props.rack.ambientC,
+    avgExhaust: props.result.airflowReport?.averageExhaustC ?? props.result.averageExhaustC,
+    deltaT: props.result.airflowReport?.rackDeltaT ?? (props.result.averageExhaustC - props.rack.ambientC),
+  };
   const overlayOptions: { id: OverlayMode; label: string; icon: ReactNode }[] = [
     { id: 'normal', label: 'Normal', icon: <Box size={12} /> },
     { id: 'airflow', label: 'Airflow', icon: <Wind size={12} /> },
@@ -161,7 +166,14 @@ export function RackStage(props: RackStageProps) {
                   <span className="flex items-center gap-1.5"><span className="h-1.5 w-4 rounded-full bg-danger" /> Recirculation</span>
                   <span className="flex items-center gap-1.5"><span className="h-1.5 w-4 rounded-full bg-electric/50" /> Bypass air</span>
                 </div>
-                <div className="mt-2.5 flex items-center justify-between border-t border-line pt-2 font-mono text-[8px] text-muted"><span className="flex items-center gap-1"><Gauge size={10} /> {Math.round(props.result.estimatedAirflowCfm).toLocaleString()} CFM</span><span>{props.result.recirculationGaps.length} open gaps</span></div>
+                <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 border-t border-line pt-2 font-mono text-[8px] text-muted">
+                  <span>Intake <span className="text-white">{airs.avgIntake.toFixed(1)}°C</span></span>
+                  <span>Exhaust <span className="text-white">{airs.avgExhaust.toFixed(1)}°C</span></span>
+                  <span>Recirc <span className="text-danger">{props.result.recirculationRiskPct.toFixed(0)}%</span></span>
+                  <span>Bypass <span className="text-electric">{props.result.bypassRiskPct.toFixed(0)}%</span></span>
+                </div>
+                <div className="mt-2 flex items-center justify-between border-t border-line pt-2 font-mono text-[8px] text-muted"><span className="flex items-center gap-1"><Gauge size={10} /> {Math.round(props.result.estimatedAirflowCfm).toLocaleString()} CFM</span><span>{props.result.recirculationGaps.length} open gaps</span></div>
+                <p className="mt-1.5 font-mono text-[7px] text-muted/80">CFD grid {props.field ? `${props.field.grid.nx}×${props.field.grid.ny}×${props.field.grid.nz}` : '—'} · ΔT {airs.deltaT.toFixed(1)}K · residual {props.result.airflowReport ? props.result.airflowReport.divergenceResidual.toFixed(2) : '—'}</p>
                 {props.view === '2d' && <p className="mt-2 text-[7px] leading-relaxed text-muted">2D elevation has no depth axis; vertical marks show U-axis motion. Use 3D for front→rear airflow.</p>}
               </>
             ) : (
