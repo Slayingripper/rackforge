@@ -119,7 +119,7 @@ export function buildStreamlineSeeds(field: AirflowField, deviceIntakes: Array<[
   const spm = field.scenePerMeter;
   const minX = field.grid.boundsMin[0] * spm; const maxX = field.grid.boundsMax[0] * spm;
   const minY = field.grid.boundsMin[1] * spm; const maxY = field.grid.boundsMax[1] * spm;
-  const minZ = field.grid.boundsMin[2] * spm; const maxZ = field.grid.boundsMax[2] * spm;
+  const maxZ = field.grid.boundsMax[2] * spm;
   const seeds: Array<[number, number, number]> = [];
   // focus seeds on the rack opening + cold aisle, not stagnant side/ceiling margins
   const cx = (minX + maxX) / 2;
@@ -127,20 +127,12 @@ export function buildStreamlineSeeds(field: AirflowField, deviceIntakes: Array<[
   const maxDeviceY = deviceIntakes.length ? Math.max(...deviceIntakes.map((p) => p[1])) : maxY;
   const seedTopY = Math.min(maxY - 0.05, maxDeviceY + (maxY - minY) * 0.10);
   const seedBottomY = Math.max(minY + 0.02, minY);
-  const X = 7; const Y = 9;
+  const X = 5; const Y = 6;
   // front cold-aisle inlet plane (rack width, device-height band)
   for (let j = 0; j < Y; j++) for (let i = 0; i < X; i++) {
     seeds.push([cx - halfOpen + (2 * halfOpen) * (i + 0.5) / X, seedBottomY + (seedTopY - seedBottomY) * (j + 0.5) / Y, maxZ - 0.02]);
   }
-  // floor supply across the opening
-  for (let k = 0; k < 4; k++) for (let i = 0; i < X; i++) {
-    seeds.push([cx - halfOpen + (2 * halfOpen) * (i + 0.5) / X, minY + 0.02, minZ + (maxZ - minZ) * (k + 0.5) / 4]);
-  }
-  // device intakes (scene), with a small cluster for readability
-  for (const p of deviceIntakes) {
-    seeds.push([p[0], p[1], p[2]]);
-    seeds.push([p[0] - halfOpen * 0.25, p[1], p[2]]);
-    seeds.push([p[0] + halfOpen * 0.25, p[1], p[2]]);
-  }
+  // one seed per device intake so each unit's path is represented
+  for (const p of deviceIntakes) seeds.push([p[0], p[1], p[2]]);
   return seeds;
 }
