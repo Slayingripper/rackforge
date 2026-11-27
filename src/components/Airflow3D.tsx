@@ -1,10 +1,9 @@
 import { useFrame } from '@react-three/fiber';
+import { Line } from '@react-three/drei';
 import { useEffect, useMemo, useRef } from 'react';
 import {
   AdditiveBlending,
   BufferAttribute,
-  BufferGeometry,
-  Float32BufferAttribute,
   CanvasTexture,
   CatmullRomCurve3,
   Color,
@@ -16,7 +15,7 @@ import {
 import type { HardwareTemplate, PlacedDevice, RackConfig, SimulationResult } from '../types';
 import { LabelSprite } from './SceneLabel';
 import type { AirflowField } from '../lib/airflow';
-import { buildStreamlineSeeds, computeStreamlines, streamlinesToSegments } from '../lib/airflow/streamlines';
+import { buildStreamlineSeeds, computeStreamlines } from '../lib/airflow/streamlines';
 
 const MM_SCALE = 1 / 250;
 const U = 44.45 * MM_SCALE;
@@ -31,18 +30,87 @@ const clampNum = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? 
  * Cold particles enter at inlets, are heated by devices, rise by buoyancy,
  * exhaust at outlets; recirculation & bypass emerge from the field.
  */
+const UP = new Vector3(0, 1, 0);
+
+function FlowArrows({ field }: { field: AirflowField }) {
+  const mesh = useRef<InstancedMesh>(null);
+  const ambientC = field.report.averageIntakeC;
+  const items = useMemo(() => {
+    const spm = field.scenePerMeter;
+    const minX = field.grid.boundsMin[0] * spm; const maxX = field.grid.boundsMax[0] * spm;
+    const minY = field.grid.boundsMin[1] * spm; const maxY = field.grid.boundsMax[1] * spm;
+    const minZ = field.grid.boundsMin[2] * spm; const maxZ = field.grid.boundsMax[2] * spm;
+    const list: { pos: [number, number, number]; dir: [number, number, number]; speed: number; tempC: number }[] = [];
+    const NX = 4; const NY = 6; const NZ = 3;
+    for (let k = 0; k < NZ; k++) {
+      for (let j = 0; j < NY; j++) {
+        for (let i = 0; i < NX; i++) {
+          const x = minX + (maxX - minX) * (i + 0.5) / NX;
+          const y = minY + (maxY - minY) * (j + 0.5) / NY;
+          const z = minZ + (maxZ - minZ) * (k + 0.5) / NZ;
+          const s = field.sampleScene(x, y, z);
+          if (s.blocked || s.speed < 0.05) continue;
+          list.push({ pos: [x, y, z], dir: [s.vx, s.vy, s.vz], speed: s.speed, tempC: s.tempC });
+        }
+      }
+    }
+    return list;
+  }, [field]);
+
+  useEffect(() => {
+    if (!mesh.current) return;
+    mesh.current.instanceMatrix.setUsage(DynamicDrawUsage);
+    const dummy = new Object3D();
+    const dir = new Vector3();
+    const color = new Color();
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      dir.set(item.dir[0], item.dir[1], item.dir[2]);
+      const speed = dir.length();
+      if (speed < 1e-5) continue;
+      dir.normalize();
+      dummy.position.set(item.pos[0], item.pos[1], item.pos[2]);
+      dummy.quaternion.setFromUnitVectors(UP, dir);
+      const len = clampNum(0.5 + speed * 0.25, 0.5, 2.2);
+      dummy.scale.set(1, len, 1);
+      dummy.updateMatrix();
+      mesh.current.setMatrixAt(i, dummy.matrix);
+      const t = clampNum((item.tempC - ambientC + 1) / 14, 0, 1);
+      color.lerpColors(COLD, HOT, t);
+      mesh.current.setColorAt(i, color);
+    }
+    mesh.current.count = items.length;
+    mesh.current.instanceMatrix.needsUpdate = true;
+    if (mesh.current.instanceColor) mesh.current.instanceColor.needsUpdate = true;
+  }, [items, ambientC]);
+
+  if (items.length === 0) return null;
+  return (
+    <instancedMesh ref={mesh} args={[undefined, undefined, Math.max(1, items.length)]} frustumCulled={false}>
+      <coneGeometry args={[0.03, 0.16, 6]} />
+      <meshBasicMaterial color="#ffffff" transparent opacity={0.82} depthWrite={false} depthTest={false} toneMapped={false} />
+    </instancedMesh>
+  );
+}
+
 function Streamlines({ field, speedMultiplier, enabled }: { field: AirflowField; speedMultiplier: number; enabled: boolean }) {
   const lines = useMemo(() => {
     const intakes = field.report.perDevice.map((d) => d.intakeScene);
-    return computeStreamlines(field, buildStreamlineSeeds(field, intakes), 240, 0.02);
+    return computeStreamlines(field, buildStreamlineSeeds(field, intakes), 520, 0.04);
   }, [field]);
-  const seg = useMemo(() => streamlinesToSegments(lines, field.report.averageIntakeC), [lines, field]);
-  const geometry = useMemo(() => {
-    const g = new BufferGeometry();
-    g.setAttribute('position', new Float32BufferAttribute(seg.positions, 3));
-    g.setAttribute('color', new Float32BufferAttribute(seg.colors, 3));
-    return g;
-  }, [seg]);
+  const rendered = useMemo(() => {
+    const ambient = field.report.averageIntakeC;
+    return lines.map((line) => {
+      const points: [number, number, number][] = [];
+      const colors: [number, number, number][] = [];
+      for (let i = 0; i < line.cumulative.length; i++) {
+        points.push([line.points[i * 3], line.points[i * 3 + 1], line.points[i * 3 + 2]]);
+        const t = clampNum((line.temps[i] - ambient + 1) / 14, 0, 1);
+        colors.push([0x6f / 255 + (0xd4 - 0x6f) / 255 * t, 0x9f / 255 + (0x7a - 0x9f) / 255 * t, 0xca / 255 + (0x4f - 0xca) / 255 * t]);
+      }
+      return { points, colors };
+    });
+  }, [lines, field]);
   const mesh = useRef<InstancedMesh>(null);
   const dummy = useMemo(() => new Object3D(), []);
   const mixedColor = useMemo(() => new Color(), []);
@@ -50,7 +118,6 @@ function Streamlines({ field, speedMultiplier, enabled }: { field: AirflowField;
   const count = lines.length * particlesPerLine;
   const ambientC = field.report.averageIntakeC;
 
-  useEffect(() => () => geometry.dispose(), [geometry]);
   useEffect(() => { mesh.current?.instanceMatrix.setUsage(DynamicDrawUsage); }, [count]);
 
   useFrame(({ clock }) => {
@@ -88,15 +155,25 @@ function Streamlines({ field, speedMultiplier, enabled }: { field: AirflowField;
     if (mesh.current.instanceColor) mesh.current.instanceColor.needsUpdate = true;
   });
 
-  if (seg.segmentCount === 0) return null;
+  if (rendered.length === 0) return null;
   return (
     <group>
-      <lineSegments geometry={geometry} frustumCulled={false}>
-        <lineBasicMaterial vertexColors transparent opacity={0.5} depthWrite={false} toneMapped={false} />
-      </lineSegments>
+      {rendered.map((line, index) => (
+        <Line
+          key={index}
+          points={line.points}
+          vertexColors={line.colors}
+          lineWidth={2.6}
+          transparent
+          opacity={0.9}
+          depthWrite={false}
+          depthTest={false}
+          toneMapped={false}
+        />
+      ))}
       <instancedMesh ref={mesh} args={[undefined, undefined, Math.max(1, count)]} frustumCulled={false}>
-        <sphereGeometry args={[0.028, 7, 7]} />
-        <meshBasicMaterial color="#ffffff" transparent opacity={0.95} depthWrite={false} toneMapped={false} />
+        <sphereGeometry args={[0.035, 8, 8]} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={0.98} depthWrite={false} depthTest={false} toneMapped={false} />
       </instancedMesh>
     </group>
   );
@@ -366,6 +443,7 @@ export function Airflow3DOverlay({
   return (
     <group>
       {field && <Streamlines field={field} speedMultiplier={speedMultiplier} enabled={animationEnabled} />}
+      {field && <FlowArrows field={field} />}
       {!field && active.map((device) => {
         const hardware = hardwareById.get(device.hardwareId);
         if (!hardware || hardware.airflow === 'passive') return null;

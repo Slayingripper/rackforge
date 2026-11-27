@@ -53,6 +53,7 @@ export function computeStreamlines(
   for (const seed of seeds) {
     const pts: number[] = [];
     const temps: number[] = [];
+    let travelled = 0;
     let x = clampNum(seed[0], min[0] + 1e-3, max[0] - 1e-3);
     let y = clampNum(seed[1], min[1] + 1e-3, max[1] - 1e-3);
     let z = clampNum(seed[2], min[2] + 1e-3, max[2] - 1e-3);
@@ -71,9 +72,11 @@ export function computeStreamlines(
       const nz = z + v2[2] * dt;
       if (!Number.isFinite(nx) || !Number.isFinite(ny) || !Number.isFinite(nz)) break;
       if (nx < min[0] || nx > max[0] || ny < min[1] || ny > max[1] || nz < min[2] || nz > max[2]) break;
+      travelled += Math.hypot(nx - x, ny - y, nz - z);
       x = nx; y = ny; z = nz;
       pts.push(x, y, z);
       temps.push(field.sampleScene(x, y, z).tempC);
+      if (travelled > 13) break;
     }
     if (pts.length < 9) continue; // need at least 3 points
     const points = new Float32Array(pts);
@@ -118,22 +121,26 @@ export function buildStreamlineSeeds(field: AirflowField, deviceIntakes: Array<[
   const minY = field.grid.boundsMin[1] * spm; const maxY = field.grid.boundsMax[1] * spm;
   const minZ = field.grid.boundsMin[2] * spm; const maxZ = field.grid.boundsMax[2] * spm;
   const seeds: Array<[number, number, number]> = [];
+  // focus seeds on the rack opening + cold aisle, not stagnant side/ceiling margins
+  const cx = (minX + maxX) / 2;
+  const halfOpen = (maxX - minX) * 0.30; // central 60% ≈ rack opening
+  const maxDeviceY = deviceIntakes.length ? Math.max(...deviceIntakes.map((p) => p[1])) : maxY;
+  const seedTopY = Math.min(maxY - 0.05, maxDeviceY + (maxY - minY) * 0.10);
+  const seedBottomY = Math.max(minY + 0.02, minY);
   const X = 7; const Y = 9;
-  // front cold-aisle inlet plane (full domain height)
+  // front cold-aisle inlet plane (rack width, device-height band)
   for (let j = 0; j < Y; j++) for (let i = 0; i < X; i++) {
-    seeds.push([minX + (maxX - minX) * (i + 0.5) / X, minY + (maxY - minY) * (j + 0.5) / Y, maxZ - 0.02]);
+    seeds.push([cx - halfOpen + (2 * halfOpen) * (i + 0.5) / X, seedBottomY + (seedTopY - seedBottomY) * (j + 0.5) / Y, maxZ - 0.02]);
   }
-  // floor supply
-  for (let k = 0; k < 5; k++) for (let i = 0; i < X; i++) {
-    seeds.push([minX + (maxX - minX) * (i + 0.5) / X, minY + 0.02, minZ + (maxZ - minZ) * (k + 0.5) / 5]);
+  // floor supply across the opening
+  for (let k = 0; k < 4; k++) for (let i = 0; i < X; i++) {
+    seeds.push([cx - halfOpen + (2 * halfOpen) * (i + 0.5) / X, minY + 0.02, minZ + (maxZ - minZ) * (k + 0.5) / 4]);
   }
-  // side inlets (open racks / side-to-side hardware)
-  for (const x of [minX + 0.02, maxX - 0.02]) {
-    for (let k = 0; k < 4; k++) for (let j = 0; j < 4; j++) {
-      seeds.push([x, minY + (maxY - minY) * (j + 0.5) / 4, minZ + (maxZ - minZ) * (k + 0.5) / 4]);
-    }
+  // device intakes (scene), with a small cluster for readability
+  for (const p of deviceIntakes) {
+    seeds.push([p[0], p[1], p[2]]);
+    seeds.push([p[0] - halfOpen * 0.25, p[1], p[2]]);
+    seeds.push([p[0] + halfOpen * 0.25, p[1], p[2]]);
   }
-  // device intakes (scene)
-  for (const p of deviceIntakes) seeds.push([p[0], p[1], p[2]]);
   return seeds;
 }

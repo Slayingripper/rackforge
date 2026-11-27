@@ -62,6 +62,7 @@ export class FluidSolver {
   private srcW: Float32Array;
 
   private bc: BoundaryConditions;
+  private ambientC: number;
   private readonly maxSpeed = 60; // m/s safety clamp
   private readonly maxTempC = 1000;
 
@@ -73,6 +74,7 @@ export class FluidSolver {
     this.spacing = Math.max(1e-4, grid.spacing);
     this.origin = [...grid.origin];
     this.bc = bc;
+    this.ambientC = ambientC;
     const n = this.n;
     this.u = new Float32Array(n);
     this.v = new Float32Array(n);
@@ -173,6 +175,9 @@ export class FluidSolver {
       Math.round(cy),
       Math.round(cz),
     );
+    if (this.blocked[idx] === 1) {
+      return { vx: 0, vy: 0, vz: 0, speed: 0, tempC: this.ambientC, blocked: true };
+    }
     const vx = safe(tri(this.u));
     const vy = safe(tri(this.v));
     const vz = safe(tri(this.w));
@@ -188,7 +193,7 @@ export class FluidSolver {
 
   // ---- stable fluids core -------------------------------------------------
 
-  private setBnd(b: number, x: Float32Array): void {
+  private setBnd(b: number, x: Float32Array, scalar = false): void {
     const { nx, ny, nz } = this;
     for (let k = 1; k < nz - 1; k++) {
       for (let j = 1; j < ny - 1; j++) {
@@ -220,12 +225,12 @@ export class FluidSolver {
     x[this.index(nx - 1, ny - 1, 0)] = 0.5 * (x[this.index(nx - 2, ny - 1, 0)] + x[this.index(nx - 1, ny - 2, 0)]);
     x[this.index(nx - 1, 0, nz - 1)] = 0.5 * (x[this.index(nx - 2, 0, nz - 1)] + x[this.index(nx - 1, 1, nz - 1)]);
     x[this.index(nx - 1, ny - 1, nz - 1)] = 0.5 * (x[this.index(nx - 2, ny - 1, nz - 1)] + x[this.index(nx - 1, ny - 2, nz - 1)]);
-    this.applyObstacles(x);
+    this.applyObstacles(x, scalar);
   }
 
-  private applyObstacles(x: Float32Array): void {
+  private applyObstacles(x: Float32Array, scalar = false): void {
     for (let idx = 0; idx < this.n; idx++) {
-      if (this.blocked[idx]) x[idx] = 0;
+      if (this.blocked[idx]) x[idx] = scalar ? this.ambientC : 0;
     }
   }
 
@@ -249,7 +254,7 @@ export class FluidSolver {
           }
         }
       }
-      this.setBnd(b, x);
+      this.setBnd(b, x, b === 0);
     }
   }
 
@@ -288,7 +293,7 @@ export class FluidSolver {
         }
       }
     }
-    this.setBnd(b, d);
+    this.setBnd(b, d, b === 0);
   }
 
   private project(u: Float32Array, v: Float32Array, w: Float32Array, p: Float32Array, div: Float32Array, iterations = 40): void {
