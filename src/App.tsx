@@ -14,6 +14,7 @@ import { CommandPalette } from './components/CommandPalette';
 import { HARDWARE_CATALOG } from './data/catalog';
 import { RACK_PRESETS } from './data/presets';
 import { checkPlacement, simulateRack, uid } from './lib/simulation';
+import { applyAirflowField, simulateAirflow, type AirflowField } from './lib/airflow';
 import { sanitizeImportedState, useRackState } from './hooks/useRackState';
 import type { AppState, HardwareTemplate, OverlayMode, PlacedDevice, RackConfig, ViewMode } from './types';
 
@@ -76,7 +77,16 @@ export default function App() {
   }, []);
 
   const catalog = useMemo(() => [...HARDWARE_CATALOG, ...state.customHardware], [state.customHardware]);
-  const result = useMemo(() => simulateRack(state.rack, state.devices, catalog), [state.rack, state.devices, catalog]);
+  const baseResult = useMemo(() => simulateRack(state.rack, state.devices, catalog), [state.rack, state.devices, catalog]);
+  // Realistic grid-based CFD airflow layer; fall back to heuristic result on any solver error.
+  const airflowField = useMemo<AirflowField | null>(() => {
+    try {
+      return simulateAirflow(state.rack, state.devices, catalog, baseResult);
+    } catch {
+      return null;
+    }
+  }, [state.rack, state.devices, catalog, baseResult]);
+  const result = useMemo(() => applyAirflowField(baseResult, airflowField), [baseResult, airflowField]);
   const selectedDevice = state.devices.find((device) => device.instanceId === state.selectedId) ?? null;
   const selectedHardware = selectedDevice ? catalog.find((item) => item.id === selectedDevice.hardwareId) ?? null : null;
   const selectedTelemetry = selectedDevice ? result.telemetry.find((item) => item.instanceId === selectedDevice.instanceId) ?? null : null;
@@ -334,7 +344,7 @@ export default function App() {
           </>
         )}
 
-        <div className="min-w-0 flex-1"><RackStage rack={state.rack} devices={state.devices} catalog={catalog} selectedId={state.selectedId} pendingHardware={pendingHardware} view={state.view} overlay={state.overlay} result={result} contextHud={!rightOpen} onViewChange={changeView} onOverlayChange={changeOverlay} onSelect={select} onUpdateSelected={updateSelected} onDuplicateSelected={duplicateSelected} onRemoveSelected={removeSelected} onPlace={placeDevice} onMove={moveDevice} onCancelPending={() => setPendingId(null)} /></div>
+        <div className="min-w-0 flex-1"><RackStage rack={state.rack} devices={state.devices} catalog={catalog} selectedId={state.selectedId} pendingHardware={pendingHardware} view={state.view} overlay={state.overlay} result={result} field={airflowField} contextHud={!rightOpen} onViewChange={changeView} onOverlayChange={changeOverlay} onSelect={select} onUpdateSelected={updateSelected} onDuplicateSelected={duplicateSelected} onRemoveSelected={removeSelected} onPlace={placeDevice} onMove={moveDevice} onCancelPending={() => setPendingId(null)} /></div>
 
         {rightOpen && (
           <>

@@ -13,12 +13,119 @@ import {
 } from 'three';
 import type { HardwareTemplate, PlacedDevice, RackConfig, SimulationResult } from '../types';
 import { LabelSprite } from './SceneLabel';
+import type { AirflowField } from '../lib/airflow';
 
 const MM_SCALE = 1 / 250;
 const U = 44.45 * MM_SCALE;
 const COLD = new Color('#6f9fca');
 const HOT = new Color('#d47a4f');
 const RISK = new Color('#d46565');
+
+const clampNum = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+
+/**
+ * Particles advected through the REAL solved CFD velocity field.
+ * Cold particles enter at inlets, are heated by devices, rise by buoyancy,
+ * exhaust at outlets; recirculation & bypass emerge from the field.
+ */
+function FieldParticles({
+  field,
+  speedMultiplier,
+  enabled,
+  count = 1400,
+}: {
+  field: AirflowField;
+  speedMultiplier: number;
+  enabled: boolean;
+  count?: number;
+}) {
+  const mesh = useRef<InstancedMesh>(null);
+  const dummy = useMemo(() => new Object3D(), []);
+  const mixedColor = useMemo(() => new Color(), []);
+  const positions = useMemo(() => new Float32Array(count * 3), [count]);
+  const ages = useMemo(() => new Float32Array(count), [count]);
+
+  const spm = field.scenePerMeter;
+  const min = useMemo<[number, number, number]>(() => [field.grid.boundsMin[0] * spm, field.grid.boundsMin[1] * spm, field.grid.boundsMin[2] * spm], [field, spm]);
+  const max = useMemo<[number, number, number]>(() => [field.grid.boundsMax[0] * spm, field.grid.boundsMax[1] * spm, field.grid.boundsMax[2] * spm], [field, spm]);
+  const ambientC = field.report.averageIntakeC;
+
+  const respawn = (i: number, seed: number) => {
+    const r1 = frac(seed * 12.9898 + i * 0.137);
+    const r2 = frac(seed * 78.233 + i * 0.233);
+    const r3 = frac(seed * 39.425 + i * 0.419);
+    const idx = i * 3;
+    if (r3 > 0.5) {
+      positions[idx] = min[0] + r1 * (max[0] - min[0]);
+      positions[idx + 1] = min[1] + r2 * (max[1] - min[1]);
+      positions[idx + 2] = max[2] - 0.02;
+    } else {
+      positions[idx] = min[0] + r1 * (max[0] - min[0]);
+      positions[idx + 1] = min[1] + 0.02;
+      positions[idx + 2] = min[2] + r2 * (max[2] - min[2]);
+    }
+    ages[i] = r1 * 1.5;
+  };
+
+  useEffect(() => {
+    mesh.current?.instanceMatrix.setUsage(DynamicDrawUsage);
+    for (let i = 0; i < count; i++) respawn(i, 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [count, field]);
+
+  useFrame((_, delta) => {
+    if (!mesh.current) return;
+    const dt = enabled ? clampNum(delta, 0, 0.05) * speedMultiplier : 0;
+    for (let i = 0; i < count; i++) {
+      const idx = i * 3;
+      let x = positions[idx];
+      let y = positions[idx + 1];
+      let z = positions[idx + 2];
+      ages[i] += dt;
+      if (dt > 0) {
+        const s = field.sampleSceneVelocity(x, y, z);
+        x += s.vx * dt;
+        y += s.vy * dt;
+        z += s.vz * dt;
+      }
+      const out = x < min[0] || x > max[0] || y < min[1] || y > max[1] || z < min[2] || z > max[2];
+      if (out || ages[i] > 9) {
+        respawn(i, ages[i] + i + 0.31);
+        x = positions[idx];
+        y = positions[idx + 1];
+        z = positions[idx + 2];
+      }
+      x = clampNum(x, min[0], max[0]);
+      y = clampNum(y, min[1], max[1]);
+      z = clampNum(z, min[2], max[2]);
+      positions[idx] = x;
+      positions[idx + 1] = y;
+      positions[idx + 2] = z;
+      const sample = field.sampleScene(x, y, z);
+      const tNorm = clampNum((sample.tempC - ambientC + 1) / 14, 0, 1);
+      mixedColor.lerpColors(COLD, HOT, tNorm);
+      dummy.position.set(x, y, z);
+      dummy.scale.setScalar(0.5 + clampNum(sample.speed * spm, 0, 4) * 0.18);
+      dummy.updateMatrix();
+      mesh.current.setMatrixAt(i, dummy.matrix);
+      mesh.current.setColorAt(i, mixedColor);
+    }
+    mesh.current.instanceMatrix.needsUpdate = true;
+    if (mesh.current.instanceColor) mesh.current.instanceColor.needsUpdate = true;
+  });
+
+  return (
+    <instancedMesh ref={mesh} args={[undefined, undefined, count]} frustumCulled={false}>
+      <sphereGeometry args={[0.02, 6, 6]} />
+      <meshBasicMaterial color="#ffffff" transparent opacity={0.85} depthWrite={false} toneMapped={false} />
+    </instancedMesh>
+  );
+}
+
+function frac(v: number): number {
+  const s = Math.sin(v) * 43758.5453;
+  return s - Math.floor(s);
+}
 
 function FlowParticles({
   curves,
@@ -247,6 +354,7 @@ export function Airflow3DOverlay({
   result,
   animationEnabled,
   speedMultiplier,
+  field = null,
 }: {
   rack: RackConfig;
   devices: PlacedDevice[];
@@ -254,6 +362,7 @@ export function Airflow3DOverlay({
   result: SimulationResult;
   animationEnabled: boolean;
   speedMultiplier: number;
+  field?: AirflowField | null;
 }) {
   const hardwareById = useMemo(() => new Map(catalog.map((item) => [item.id, item])), [catalog]);
   const telemetryById = useMemo(() => new Map(result.telemetry.map((item) => [item.instanceId, item])), [result.telemetry]);
@@ -281,7 +390,8 @@ export function Airflow3DOverlay({
 
   return (
     <group>
-      {active.map((device) => {
+      {field && <FieldParticles field={field} speedMultiplier={speedMultiplier} enabled={animationEnabled} />}
+      {!field && active.map((device) => {
         const hardware = hardwareById.get(device.hardwareId);
         if (!hardware || hardware.airflow === 'passive') return null;
         if (device.mount === 'vertical') {
@@ -327,7 +437,7 @@ export function Airflow3DOverlay({
           fontSize={24}
         />
       ))}
-      {result.bypassRiskPct > 8 && bypassCurves.map((curve, index) => (
+      {!field && result.bypassRiskPct > 8 && bypassCurves.map((curve, index) => (
         <group key={index}>
           <mesh>
             <tubeGeometry args={[curve, 32, 0.009, 5, false]} />
@@ -336,10 +446,10 @@ export function Airflow3DOverlay({
           <FlowParticles curves={[curve]} speed={0.16 * speedMultiplier} enabled={animationEnabled} gradient={false} color={COLD} particlesPerCurve={3} size={0.7} />
         </group>
       ))}
-      {result.bypassRiskPct > 15 && (
+      {!field && result.bypassRiskPct > 15 && (
         <LabelSprite text="BYPASS AIR" position={[width / 2 + 0.55, height * 0.34, -depth / 2 - 0.4]} color="#6f93b8" width={1.05} fontSize={23} />
       )}
-      <ThermalPlume rack={rack} heatKw={result.heatKw} speedMultiplier={speedMultiplier} enabled={animationEnabled} />
+      {!field && <ThermalPlume rack={rack} heatKw={result.heatKw} speedMultiplier={speedMultiplier} enabled={animationEnabled} />}
     </group>
   );
 }

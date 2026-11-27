@@ -418,6 +418,7 @@ interface Rack3DProps {
   speedMultiplier: number;
   onSelect: (id: string | null) => void;
   onPlace: (hardwareId: string, startU: number, mount: 'front' | 'rear') => void;
+  field?: import('../lib/airflow').AirflowField | null;
 }
 
 export function Rack3D(props: Rack3DProps) {
@@ -511,6 +512,7 @@ export function Rack3D(props: Rack3DProps) {
             result={props.result}
             animationEnabled={props.animationEnabled}
             speedMultiplier={props.speedMultiplier}
+            field={props.field ?? null}
           />
         )}
         <PlacementSlots rack={props.rack} pending={props.pendingHardware} hovered={hoveredU} onHover={setHoveredU} onPlace={(startU) => props.pendingHardware && props.onPlace(props.pendingHardware.id, startU, 'front')} />

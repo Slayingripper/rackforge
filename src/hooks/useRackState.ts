@@ -98,6 +98,7 @@ const RACK_WIDTHS = [600, 800] as const;
 const RACK_DEPTHS = [800, 1000, 1200] as const;
 const RACK_FORMS = ['open-2post', 'open-4post', 'enclosed'] as const;
 const FAN_PROFILES = ['eco', 'balanced', 'max'] as const;
+const COOLING_ORIENTATIONS: NonNullable<RackConfig['coolingOrientation']>[] = ['front-to-back', 'reverse', 'bottom-to-top', 'front-only'];
 const REDUNDANCIES = ['N', 'N+1', '2N'] as const;
 const VOLTAGES = [120, 208, 230, 240] as const;
 const CATEGORIES = ['compute', 'sbc', 'storage', 'network', 'power', 'thermal', 'accessory'] as const;
@@ -147,6 +148,7 @@ function normalizeRack(value: Record<string, unknown>): RackConfig {
     coolingKw: Math.max(0.0001, numberOr(value.coolingKw, 8)),
     fanProfile: enumOr<FanProfile>(value.fanProfile, FAN_PROFILES, 'balanced'),
     electricityRate: Math.max(0, numberOr(value.electricityRate, 0.18)),
+    coolingOrientation: enumOr<NonNullable<RackConfig['coolingOrientation']>>(value.coolingOrientation, COOLING_ORIENTATIONS, 'front-to-back'),
     zones,
   };
 }

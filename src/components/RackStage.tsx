@@ -8,6 +8,7 @@ import { TelemetryBento } from './TelemetryBento';
 import { DeviceHud } from './DeviceHud';
 import { IconButton } from './ui';
 import type { HardwareTemplate, OverlayMode, PlacedDevice, RackConfig, SimulationResult, ViewMode } from '../types';
+import type { AirflowField } from '../lib/airflow';
 
 const Rack3D = lazy(() => import('./Rack3D').then((module) => ({ default: module.Rack3D })));
 
@@ -20,6 +21,7 @@ interface RackStageProps {
   view: ViewMode;
   overlay: OverlayMode;
   result: SimulationResult;
+  field?: AirflowField | null;
   contextHud: boolean;
   onViewChange: (view: ViewMode) => void;
   onOverlayChange: (overlay: OverlayMode) => void;
@@ -135,7 +137,7 @@ export function RackStage(props: RackStageProps) {
             <Rack3D
               rack={props.rack} devices={props.devices} catalog={props.catalog} selectedId={props.selectedId}
               pendingHardware={props.pendingHardware} overlay={props.overlay} result={props.result}
-              cutaway={cutaway} xray={xray} resetKey={resetKey} animationEnabled={flowAnimationEnabled} speedMultiplier={speedMultiplier} onSelect={props.onSelect} onPlace={props.onPlace}
+              cutaway={cutaway} xray={xray} resetKey={resetKey} animationEnabled={flowAnimationEnabled} speedMultiplier={speedMultiplier} onSelect={props.onSelect} onPlace={props.onPlace} field={props.field ?? null}
             />
           </Suspense>
         ) : (

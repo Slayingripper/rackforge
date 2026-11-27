@@ -112,7 +112,7 @@ A **2D elevation has no rear/front depth axis**. RackForge does **not** draw lef
 - **2D mode** shows `F→R`, `R→F`, `S→S`, or passive direction marks and vertical U-axis motion.
 - **Front-to-back** devices intake from the front and exhaust toward rear; **back-to-front** devices reverse that direction; **side-to-side** uses lateral intake/exhaust.
 - **Facility orientation** normally places cold intake at the front and hot exhaust at rear. Keep front and rear clear.
-- **2D thermal marks** show estimated intake/exhaust temperature, not a CFD reconstruction.
+- **2D elevation stays truthful:** it has no depth axis, so it shows per-device direction labels + a vertical U-axis and uses CFD-derived temperatures; it does **not** draw left-to-right airflow. Full CFD velocity rendering is in **3D** mode.
 
 ### Airflow visualization
 
@@ -133,7 +133,7 @@ A **2D elevation has no rear/front depth axis**. RackForge does **not** draw lef
 
 ## Engineering model
 
-All calculations update deterministically as hardware changes.
+All calculations update deterministically as hardware changes. Power, energy, and structure are a closed-form engine; **airflow is a real reduced-order CFD simulation** (below).
 
 ### Power
 
@@ -174,9 +174,39 @@ All calculations update deterministically as hardware changes.
 - U-space occupancy
 - heavy-upper-rack warnings
 
+### Realistic airflow simulation (CFD)
+
+RackForge includes a **real grid-based incompressible fluid solver**, not just hand-drawn arrows or a scalar heat model.
+
+**Solver (`src/lib/airflow/fluidSolver.ts`)**
+- Incompressible Navier–Stokes via the **stable-fluids** method (Jos Stam): external forces → velocity diffusion → **pressure projection** (Poisson solve for incompressibility) → **semi-Lagrangian advection** → re-projection.
+- **Temperature transport**: advected scalar with thermal diffusion + volumetric heat sources.
+- **Boussinesq buoyancy**: hotter air rises; `F ↑ ∝ (T − T_ambient)`.
+- Physical constants: air density `ρ=1.204 kg/m³`, `cp=1005 J/(kg·K)`, kinematic viscosity `ν=1.5e-5 m²/s`, thermal diffusivity `α=2.2e-5 m²/s`, `g=9.81 m/s²`, `β=1/293 K`.
+- **Obstacles**: solid rack shell (enclosed top/bottom/sides, side panels) masked out; no-slip walls.
+- Deterministic, finite (clamped, NaN-guarded), no network. Units: metres/seconds/kelvin-offset; scene render scale `scene = world_m × 4`.
+
+**Domain & boundary conditions (`src/lib/airflow/rackModel.ts`)**
+- Computational domain = rack + cold-aisle front margin + hot-aisle rear margin + side + floor/ceiling margins.
+- **Cold inlet**: front face (cold aisle) at rack ambient temperature, inflow speed scaled by fan profile; **outlets** at rear hot aisle (+ top / floor return per orientation); zero-gradient temperature outflow; no-slip solids.
+- **Facility orientation** (`RackConfig.coolingOrientation`): `front-to-back` (default; cold front → hot rear), `reverse`, `bottom-to-top` (cold supply at floor + hot return at ceiling, in addition to device-level front-to-back), `front-only`. Cold air enters at inlets and hot air exhausts to outlets; buoyancy adds hot-air rise.
+- **Porous-fan device model**: each active device adds **volumetric heat** (`Q̇_heat`, watts) uniformly and injects a **fan velocity** directed intake→exhaust. Volumetric flow `Q̇_air = clamp(Q̇_heat / (ρ·cp·ΔT_device), min, max)`, `ΔT_device≈12 K`. Passive hardware adds heat without fan flow. Real **airflow types** honored: `front-to-back`, `back-to-front`, `side-to-side`, `passive`, including mount side/flip.
+
+**Physical relations (exact, applied on top of the solved field)**
+- Device exhaust temperature: `T_exhaust = T_intake + Q̇_heat / (ρ·cp·Q̇_air)`.
+- Rack ΔT: `ΔT_rack = ΣQ̇_heat / (ρ·cp·ΣQ̇_air)`; hot-aisle `T_exhaust = T_intake + ΔT_rack`, cross-checked against the CFD rear sample.
+- CFM `= Q̇_air × 2118.88`; mass flow `= Q̇_air × ρ`.
+
+**Outputs (`AirflowField`, `AirflowReport`)** — `sampleWorld()` / `sampleScene()` trilinear velocity+temperature queries; per-device intake/exhaust temps, speeds, ΔT, recirculation, flow; global average/max temp, average/max intake, rack ΔT, total CFM, mass flow, **airflow efficiency**, **recirculation risk**, **bypass risk**, hot-intake risk, rear bypass, hotspots, **incompressibility residual**, max speed, convergence flag, honest `note`.
+- `applyAirflowField(result, field)` merges CFD outputs into `SimulationResult` (localTempC, severity, averageExhaustC, maxDeviceTempC, CFM, efficiency, recirculation, bypass, `airflowReport`) without touching power/energy/structure. Power/structure stay with `simulateRack`; falls back to heuristics if the solver errors.
+
+**Rendering (`src/components/Airflow3D.tsx`)** — thousands of particles **advected through the actual solved velocity field**, respawned at cold inlets, **colored by local CFD temperature** (cold→hot), sized by speed; recirculation, bypass, hot-exhaust rise, and aisle structure **emerge from physics**, not hand-drawn curves. Pause/resume + speed, `prefers-reduced-motion`. 2D remains a truthful elevation slice.
+
+**API:** `simulateAirflow(rack, devices, catalog, result, options?)`, `applyAirflowField`, `AirflowField`, `FluidSolver`, `buildRackModel`, `simulateAirflow` options `{ steps, dt, resolution, orientation, inletSpeedMps }`.
+
 ### Estimates, not certification
 
-RackForge estimates are for planning and comparison only. They are **not** CFD, electrical, structural, fire, or safety certification. Validate final designs against manufacturer datasheets, rack limits, local codes, PDU ratings, cooling capacity, cabling, grounding, and site requirements.
+RackForge estimates are for planning and comparison only. The airflow model is a **reduced-order, coarse-grid CFD planning approximation**, not a certified CFD package and not a substitute for a full CFD study; results are **not** electrical, structural, fire, or safety certification. Validate final designs against manufacturer datasheets, rack limits, local codes, PDU ratings, cooling capacity, cabling, grounding, and site requirements.
 
 ---
 

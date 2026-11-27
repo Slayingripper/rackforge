@@ -38,6 +38,8 @@ export interface RackConfig {
   fanProfile: FanProfile;
   electricityRate: number;
   zones: RackZone[];
+  /** facility-level cooling orientation for the CFD airflow model */
+  coolingOrientation?: 'front-to-back' | 'reverse' | 'bottom-to-top' | 'front-only';
 }
 
 export interface HardwareTemplate {
@@ -169,4 +171,6 @@ export interface SimulationResult {
   severity: Severity;
   redundancyNote: string;
   verticalWeightKg: number;
+  /** CFD-derived airflow report when the realistic airflow model is applied */
+  airflowReport?: import('./lib/airflow/types').AirflowReport;
 }
