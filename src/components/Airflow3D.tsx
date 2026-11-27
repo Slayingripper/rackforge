@@ -14,7 +14,8 @@ import {
 import type { HardwareTemplate, PlacedDevice, RackConfig, SimulationResult } from '../types';
 import { LabelSprite } from './SceneLabel';
 
-const U = 0.105;
+const MM_SCALE = 1 / 250;
+const U = 44.45 * MM_SCALE;
 const COLD = new Color('#6f9fca');
 const HOT = new Color('#d47a4f');
 const RISK = new Color('#d46565');
@@ -150,8 +151,8 @@ function DeviceStream({
 function ThermalPlume({ rack, heatKw, speedMultiplier, enabled }: { rack: RackConfig; heatKw: number; speedMultiplier: number; enabled: boolean }) {
   const count = 110;
   const attribute = useRef<BufferAttribute>(null);
-  const rackWidth = rack.widthMm / 160;
-  const rackDepth = rack.depthMm / 260;
+  const rackWidth = rack.widthMm * MM_SCALE;
+  const rackDepth = rack.depthMm * MM_SCALE;
   const rackHeight = rack.heightU * U;
   const positions = useMemo(() => new Float32Array(count * 3), []);
   const colors = useMemo(() => {
@@ -256,8 +257,8 @@ export function Airflow3DOverlay({
 }) {
   const hardwareById = useMemo(() => new Map(catalog.map((item) => [item.id, item])), [catalog]);
   const telemetryById = useMemo(() => new Map(result.telemetry.map((item) => [item.instanceId, item])), [result.telemetry]);
-  const width = rack.widthMm / 160;
-  const depth = rack.depthMm / 260;
+  const width = rack.widthMm * MM_SCALE;
+  const depth = rack.depthMm * MM_SCALE;
   const height = rack.heightU * U;
   const active = devices.filter((device) => device.status === 'active');
 
@@ -299,7 +300,7 @@ export function Airflow3DOverlay({
           );
         }
         const telemetry = telemetryById.get(device.instanceId);
-        const deviceWidth = Math.min(hardware.widthMm / 160, width * 0.8);
+        const deviceWidth = Math.min(hardware.widthMm * MM_SCALE, width * 0.8);
         return (
           <DeviceStream
             key={device.instanceId}

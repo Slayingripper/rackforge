@@ -7,7 +7,8 @@ import type { HardwareTemplate, OverlayMode, PlacedDevice, RackConfig, Simulatio
 import { LabelSprite } from './SceneLabel';
 import { Airflow3DOverlay } from './Airflow3D';
 
-const U = 0.105;
+const MM_SCALE = 1 / 250;
+const U = 44.45 * MM_SCALE;
 
 function perforationTexture() {
   const canvas = document.createElement('canvas');
@@ -114,13 +115,13 @@ function Chassis({
   animationEnabled: boolean;
   onSelect: (id: string) => void;
 }) {
-  const rackWidth = rack.widthMm / 160;
-  const innerWidth = Math.max(0.5, rackWidth - 0.24);
-  const width = Math.min(hardware.widthMm / 160, innerWidth * 0.96);
-  const depth = hardware.depthMm / 260;
-  const height = Math.max(0.045, hardware.uHeight * U - 0.018);
+  const rackWidth = rack.widthMm * MM_SCALE;
+  const innerWidth = Math.max(0.5, rackWidth - 0.16);
+  const width = Math.min(hardware.widthMm * MM_SCALE, innerWidth);
+  const depth = hardware.depthMm * MM_SCALE;
+  const height = Math.max(0.045, hardware.uHeight * U - 0.012);
   const y = (device.startU + hardware.uHeight / 2) * U;
-  const rackDepth = rack.depthMm / 260;
+  const rackDepth = rack.depthMm * MM_SCALE;
   const z = device.mount === 'rear'
     ? -rackDepth / 2 + depth / 2 + 0.12
     : rackDepth / 2 - depth / 2 - 0.12;
@@ -207,7 +208,7 @@ function Chassis({
 
 function VerticalPdu({ device, hardware, rack, selected, onSelect }: { device: PlacedDevice; hardware: HardwareTemplate; rack: RackConfig; selected: boolean; onSelect: (id: string) => void }) {
   const rackHeight = rack.heightU * U;
-  const rackWidth = rack.widthMm / 160;
+  const rackWidth = rack.widthMm * MM_SCALE;
   const pduHeight = rackHeight * 0.86;
   const x = (device.side === 'left' ? -1 : 1) * (rackWidth / 2 - 0.075);
   return (
@@ -227,15 +228,15 @@ function VerticalPdu({ device, hardware, rack, selected, onSelect }: { device: P
 }
 
 function RackUnitGrid({ rack, width, depth }: { rack: RackConfig; width: number; depth: number }) {
-  const innerWidth = Math.max(0.5, width - 0.24);
+  const innerWidth = Math.max(0.5, width - 0.16);
   return (
     <group>
       {Array.from({ length: Math.max(0, rack.heightU - 1) }, (_, index) => {
         const y = (index + 1) * U;
         return (
           <group key={index}>
-            <mesh position={[0, y, depth / 2 - 0.008]}><boxGeometry args={[innerWidth, 0.004, 0.006]} /><meshBasicMaterial color="#3a4856" transparent opacity={0.65} /></mesh>
-            <mesh position={[0, y, -depth / 2 + 0.008]}><boxGeometry args={[innerWidth, 0.004, 0.006]} /><meshBasicMaterial color="#3a4856" transparent opacity={0.65} /></mesh>
+            <mesh position={[0, y, depth / 2 - 0.008]}><boxGeometry args={[innerWidth, 0.003, 0.006]} /><meshBasicMaterial color="#89939c" transparent opacity={0.38} /></mesh>
+            <mesh position={[0, y, -depth / 2 + 0.008]}><boxGeometry args={[innerWidth, 0.003, 0.006]} /><meshBasicMaterial color="#89939c" transparent opacity={0.38} /></mesh>
           </group>
         );
       })}
@@ -244,80 +245,83 @@ function RackUnitGrid({ rack, width, depth }: { rack: RackConfig; width: number;
 }
 
 function RackFrame({ rack, cutaway, xray, thermal }: { rack: RackConfig; cutaway: boolean; xray: boolean; thermal: boolean }) {
-  const width = rack.widthMm / 160;
-  const depth = rack.depthMm / 260;
+  const width = rack.widthMm * MM_SCALE;
+  const depth = rack.depthMm * MM_SCALE;
   const height = rack.heightU * U;
+  const rail = 0.08;
+  const panelThickness = 0.06;
+  const doorThickness = 0.06;
+  const frontZ = depth / 2 + rail;
+  const rearZ = -depth / 2 - rail;
+  const outerWidth = width + rail * 2;
+  const outerDepth = depth + rail * 2;
+  const frameColor = '#a7adb3';
+  const panelColor = '#8d969d';
   const texture = useMemo(perforationTexture, []);
   useEffect(() => () => texture.dispose(), [texture]);
-  const panelOpacity = xray ? 0.12 : 0.82;
+  const panelOpacity = xray ? 0.1 : 0.82;
+  const doorOpacity = xray ? 0.08 : 0.48;
   const enclosed = rack.form === 'enclosed';
-  const frontPosts = true;
   const rearPosts = rack.form !== 'open-2post';
 
   return (
     <group>
       <RackUnitGrid rack={rack} width={width} depth={depth} />
-      <RoundedBox args={[width + 0.85, 0.1, depth + 0.85]} radius={0.06} smoothness={3} position={[0, -0.2, 0]} receiveShadow>
-        <meshStandardMaterial color="#0d1723" metalness={0.55} roughness={0.4} />
-        <Edges color="#31465c" />
+      <RoundedBox args={[outerWidth + 0.12, 0.1, outerDepth + 0.12]} radius={0.04} smoothness={3} position={[0, -0.22, 0]} receiveShadow>
+        <meshStandardMaterial color="#2b3239" metalness={0.45} roughness={0.5} />
       </RoundedBox>
-      <mesh position={[0, -0.145, depth / 2 + 0.43]}>
-        <boxGeometry args={[width * 0.46, 0.015, 0.018]} />
-        <meshBasicMaterial color="#d6a34c" transparent opacity={0.55} />
-      </mesh>
-      <LabelSprite text={`${rack.name} · ${rack.heightU}U`} position={[0, height + 0.28, depth / 2 + 0.12]} color="#9fb2c8" width={2.25} fontSize={23} />
-      {frontPosts && [-1, 1].map((side) => (
-        <mesh key={`front-${side}`} position={[side * (width / 2 + 0.08), height / 2, depth / 2 + 0.08]} castShadow>
-          <boxGeometry args={[0.12, height + 0.2, 0.12]} />
-          <meshStandardMaterial color="#52667d" metalness={0.85} roughness={0.28} />
+
+      {[-1, 1].map((side) => (
+        <mesh key={`front-${side}`} position={[side * (width / 2 + rail / 2), height / 2, depth / 2 + rail / 2]} castShadow>
+          <boxGeometry args={[rail, height + rail * 2, rail]} />
+          <meshStandardMaterial color={frameColor} metalness={0.72} roughness={0.34} />
         </mesh>
       ))}
       {rearPosts && [-1, 1].map((side) => (
-        <mesh key={`rear-${side}`} position={[side * (width / 2 + 0.08), height / 2, -depth / 2 - 0.08]} castShadow>
-          <boxGeometry args={[0.12, height + 0.2, 0.12]} />
-          <meshStandardMaterial color="#52667d" metalness={0.85} roughness={0.28} />
+        <mesh key={`rear-${side}`} position={[side * (width / 2 + rail / 2), height / 2, -depth / 2 - rail / 2]} castShadow>
+          <boxGeometry args={[rail, height + rail * 2, rail]} />
+          <meshStandardMaterial color={frameColor} metalness={0.72} roughness={0.34} />
         </mesh>
       ))}
-      {[{ key: 'bottom', y: 0 }, { key: 'top', y: height }].map((beam) => (
+
+      {[{ key: 'bottom', y: -rail / 2 }, { key: 'top', y: height + rail / 2 }].map((beam) => (
         <group key={beam.key}>
-          <mesh position={[0, beam.y, depth / 2 + 0.08]} castShadow><boxGeometry args={[width + 0.28, 0.12, 0.12]} /><meshStandardMaterial color="#52667d" metalness={0.85} roughness={0.28} /></mesh>
-          {rearPosts && <mesh position={[0, beam.y, -depth / 2 - 0.08]} castShadow><boxGeometry args={[width + 0.28, 0.12, 0.12]} /><meshStandardMaterial color="#52667d" metalness={0.85} roughness={0.28} /></mesh>}
+          <mesh position={[0, beam.y, depth / 2 + rail / 2]} castShadow><boxGeometry args={[outerWidth, rail, rail]} /><meshStandardMaterial color={frameColor} metalness={0.72} roughness={0.34} /></mesh>
+          {rearPosts && <mesh position={[0, beam.y, -depth / 2 - rail / 2]} castShadow><boxGeometry args={[outerWidth, rail, rail]} /><meshStandardMaterial color={frameColor} metalness={0.72} roughness={0.34} /></mesh>}
+          {rearPosts && <mesh position={[0, beam.y, 0]}><boxGeometry args={[outerWidth, rail * 0.65, outerDepth - rail * 2]} /><meshStandardMaterial color={frameColor} metalness={0.72} roughness={0.34} /></mesh>}
         </group>
       ))}
+
       {enclosed && (
         <>
-          {rack.sidePanels && !cutaway && <mesh position={[width / 2 + 0.02, height / 2, 0]} castShadow><boxGeometry args={[0.06, height, depth]} /><meshStandardMaterial color="#25374b" transparent opacity={panelOpacity} metalness={0.55} roughness={0.4} depthWrite={!xray} /></mesh>}
-          {rack.sidePanels && <mesh position={[-width / 2 - 0.02, height / 2, 0]} castShadow><boxGeometry args={[0.06, height, depth]} /><meshStandardMaterial color="#25374b" transparent opacity={panelOpacity} metalness={0.55} roughness={0.4} depthWrite={!xray} /></mesh>}
-          <mesh position={[0, height + 0.02, 0]} castShadow><boxGeometry args={[width, 0.06, depth]} /><meshStandardMaterial color="#25374b" transparent opacity={panelOpacity} metalness={0.55} roughness={0.4} depthWrite={!xray} /></mesh>
-          {!cutaway && <mesh position={[0, height / 2, -depth / 2 - 0.15]}>
-            <boxGeometry args={[width + 0.12, height + 0.12, 0.055]} />
-            <meshStandardMaterial color={rack.perforatedDoors ? '#8294a9' : '#31465c'} map={rack.perforatedDoors ? texture : undefined} transparent opacity={xray ? 0.1 : 0.5} metalness={0.6} roughness={0.4} depthWrite={!xray} />
-          </mesh>}
+          <mesh position={[0, height / 2, rearZ]}><boxGeometry args={[width, height, panelThickness]} /><meshStandardMaterial color={panelColor} transparent opacity={panelOpacity} metalness={0.55} roughness={0.42} depthWrite={!xray} /></mesh>
+          <mesh position={[-width / 2 - rail - panelThickness / 2, height / 2, 0]}><boxGeometry args={[panelThickness, height, depth]} /><meshStandardMaterial color={panelColor} transparent opacity={panelOpacity} metalness={0.55} roughness={0.42} depthWrite={!xray} /></mesh>
+          {rack.sidePanels && !cutaway && <mesh position={[width / 2 + rail + panelThickness / 2, height / 2, 0]}><boxGeometry args={[panelThickness, height, depth]} /><meshStandardMaterial color={panelColor} transparent opacity={panelOpacity} metalness={0.55} roughness={0.42} depthWrite={!xray} /></mesh>}
+          <mesh position={[0, height + rail + panelThickness / 2, 0]}><boxGeometry args={[width, panelThickness, depth]} /><meshStandardMaterial color={panelColor} transparent opacity={panelOpacity} metalness={0.55} roughness={0.42} depthWrite={!xray} /></mesh>
           {!cutaway && (
-            <mesh position={[0, height / 2, depth / 2 + 0.15]}>
-              <boxGeometry args={[width + 0.12, height + 0.12, 0.055]} />
-              <meshStandardMaterial color={rack.perforatedDoors ? '#8294a9' : '#31465c'} map={rack.perforatedDoors ? texture : undefined} transparent opacity={xray ? 0.1 : 0.5} metalness={0.6} roughness={0.4} depthWrite={!xray} />
+            <mesh position={[0, height / 2, frontZ + doorThickness / 2 + rail / 2]}>
+              <boxGeometry args={[outerWidth, height + rail, doorThickness]} />
+              <meshStandardMaterial color={rack.perforatedDoors ? '#b7bec4' : panelColor} map={rack.perforatedDoors ? texture : undefined} transparent opacity={doorOpacity} metalness={0.55} roughness={0.4} depthWrite={!xray} />
             </mesh>
           )}
-          {[-1, 1].map((x) => [-1, 1].map((z) => (
-            <mesh key={`${x}-${z}`} position={[x * width * 0.38, -0.12, z * depth * 0.38]}>
-              <cylinderGeometry args={[0.11, 0.11, 0.12, 16]} />
-              <meshStandardMaterial color="#080d14" metalness={0.4} roughness={0.5} />
-            </mesh>
-          )))}
+          {!cutaway && !xray && <mesh position={[width / 2 - 0.035, height / 2, frontZ + doorThickness + 0.01]}><boxGeometry args={[0.025, height * 0.55, 0.025]} /><meshStandardMaterial color="#4c5863" metalness={0.75} roughness={0.3} /></mesh>}
         </>
       )}
+
+      {[-1, 1].map((x) => [-1, 1].map((z) => (
+        <mesh key={`${x}-${z}`} position={[x * (width / 2 + rail / 2), -0.29, z * (depth / 2 + rail / 2)]}>
+          <cylinderGeometry args={[0.055, 0.055, 0.13, 16]} />
+          <meshStandardMaterial color="#161c22" metalness={0.45} roughness={0.55} />
+        </mesh>
+      )))}
+
+      <LabelSprite text={`${rack.name} · ${rack.heightU}U`} position={[0, height + 0.22, frontZ + 0.06]} color="#4f5c68" width={Math.min(2.1, width * 0.58)} fontSize={23} />
+
       {thermal && (
         <>
-          <mesh position={[0, -0.015, depth / 2 + 1.25]} rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[width + 1.3, 2.5]} />
-            <meshBasicMaterial color="#6f93b8" transparent opacity={0.11} depthWrite={false} />
-          </mesh>
+          <mesh position={[0, -0.015, depth / 2 + 1.25]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[width + 1.3, 2.5]} /><meshBasicMaterial color="#6f93b8" transparent opacity={0.11} depthWrite={false} /></mesh>
           <LabelSprite text="COLD AISLE · INTAKE" position={[0, 0.04, depth / 2 + 1.15]} color="#6f93b8" width={2.15} />
-          <mesh position={[0, -0.012, -depth / 2 - 1.25]} rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[width + 1.3, 2.5]} />
-            <meshBasicMaterial color="#d46565" transparent opacity={0.13} depthWrite={false} />
-          </mesh>
+          <mesh position={[0, -0.012, -depth / 2 - 1.25]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[width + 1.3, 2.5]} /><meshBasicMaterial color="#d46565" transparent opacity={0.13} depthWrite={false} /></mesh>
           <LabelSprite text="HOT AISLE · EXHAUST" position={[0, 0.04, -depth / 2 - 1.15]} color="#d46565" width={2.15} />
         </>
       )}
@@ -335,8 +339,8 @@ function PlacementSlots({
   onPlace: (u: number) => void;
 }) {
   if (!pending) return null;
-  const width = Math.max(0.5, (rack.widthMm / 160 - 0.24) * 0.96);
-  const depth = Math.max(0.5, (rack.depthMm / 260 - 0.4) * 0.82);
+  const width = Math.max(0.5, rack.widthMm * MM_SCALE - 0.16);
+  const depth = Math.max(0.5, rack.depthMm * MM_SCALE - 0.16);
   return (
     <group>
       {Array.from({ length: rack.heightU }, (_, startU) => (
@@ -366,7 +370,7 @@ function CameraRig({ resetKey, rackHeight }: { resetKey: number; rackHeight: num
   const { camera } = useThree();
   const targetY = rackHeight * 0.5;
   useEffect(() => {
-    const scale = Math.max(0.72, Math.min(1.1, rackHeight / 4.4));
+    const scale = Math.max(0.8, Math.min(1.15, rackHeight / 7.5));
     camera.position.set(6.6 * scale, targetY + 2.6, 7.2 * scale);
     camera.lookAt(0, targetY, 0);
     if (controls.current) {
@@ -413,7 +417,7 @@ export function Rack3D(props: Rack3DProps) {
     if (cameraRef.current) {
       const raycaster = new Raycaster();
       raycaster.setFromCamera(new Vector2(ndcX, ndcY), cameraRef.current);
-      const rackDepth = props.rack.depthMm / 260;
+      const rackDepth = props.rack.depthMm * MM_SCALE;
       const frontZ = rackDepth / 2 - 0.12;
       const hit = raycaster.ray.intersectPlane(new Plane(new Vector3(0, 0, 1), -frontZ), new Vector3());
       if (hit) startU = Math.floor(hit.y / U);

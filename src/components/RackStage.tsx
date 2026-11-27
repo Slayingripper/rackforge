@@ -160,6 +160,7 @@ export function RackStage(props: RackStageProps) {
                   <span className="flex items-center gap-1.5"><span className="h-1.5 w-4 rounded-full bg-electric/50" /> Bypass air</span>
                 </div>
                 <div className="mt-2.5 flex items-center justify-between border-t border-line pt-2 font-mono text-[8px] text-muted"><span className="flex items-center gap-1"><Gauge size={10} /> {Math.round(props.result.estimatedAirflowCfm).toLocaleString()} CFM</span><span>{props.result.recirculationGaps.length} open gaps</span></div>
+                {props.view === '2d' && <p className="mt-2 text-[7px] leading-relaxed text-muted">2D elevation has no depth axis; vertical marks show U-axis motion. Use 3D for front→rear airflow.</p>}
               </>
             ) : (
               <>
